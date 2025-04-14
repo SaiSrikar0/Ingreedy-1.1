@@ -17,15 +17,17 @@ Ingreedy is an intelligent recipe chatbot that helps you find recipes based on t
 - **Backend**: Python with FastAPI
 - **Frontend**: HTML, CSS, JavaScript
 - **Machine Learning**: scikit-learn for K-means and Hierarchical clustering
-- **API**: Spoonacular API for recipe data
+- **API**: Spoonacular API for recipe data (with local fallback)
 - **Data Processing**: Pandas for data manipulation
+- **Text Processing**: NLTK and fuzzywuzzy for natural language processing
 
 ## How It Works
 
 1. **Ingredient Extraction**: The system extracts ingredients from your messages
-2. **K-means Clustering**: Finds recipes with exact or nearest matching ingredients
-3. **Hierarchical Clustering**: Falls back to this if K-means can't find a good match
-4. **Recipe Recommendation**: Returns the best matching recipes based on your ingredients
+2. **Natural Language Processing**: Understands queries like "What can I make with eggs and potatoes?"
+3. **K-means Clustering**: Finds recipes with exact or nearest matching ingredients
+4. **Hierarchical Clustering**: Falls back to this if K-means can't find a good match
+5. **Recipe Recommendation**: Returns the best matching recipes based on your ingredients
 
 ## Getting Started
 
@@ -64,13 +66,25 @@ Ingreedy is an intelligent recipe chatbot that helps you find recipes based on t
 ### Running the Application
 
 1. Start the development server:
+   
+   **Windows:**
    ```
-   python -m app.main
+   python run.py
+   ```
+   
+   **macOS/Linux:**
+   ```
+   python run.py
+   ```
+   
+   Alternatively, you can run:
+   ```
+   uvicorn app.main:app --reload --port 3000
    ```
 
-2. Open your browser and navigate to:
+2. Your browser should open automatically. If not, navigate to:
    ```
-   http://localhost:8000
+   http://localhost:3000
    ```
 
 ## Example Usage
@@ -94,12 +108,34 @@ ingreedy/
 │   ├── templates/        # HTML templates
 │   └── main.py           # Entry point of the application
 ├── venv/                 # Virtual environment (not tracked in git)
+├── run.py                # Script to run the application
 ├── .env                  # Environment variables (not tracked in git)
 ├── .gitignore            # Git ignore file
 ├── LICENSE               # License file
 ├── README.md             # This file
 └── requirements.txt      # Python dependencies
 ```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Missing Dependencies**: If you encounter a "ModuleNotFoundError", make sure all required packages are installed:
+   ```
+   pip install -r requirements.txt
+   ```
+
+2. **API Limit Reached**: The free tier of Spoonacular API has a daily limit. When reached, the app will fall back to using local recipe data.
+
+3. **Port Already in Use**: If port 3000 is already in use, change the port in `run.py` or use:
+   ```
+   uvicorn app.main:app --reload --port [different_port]
+   ```
+
+4. **Mac OS Permission Issues**: On macOS, you might need to grant permissions:
+   ```
+   chmod +x run.py
+   ```
 
 ## Contributing
 
@@ -114,3 +150,5 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [Spoonacular API](https://spoonacular.com/food-api) for providing recipe data
 - [scikit-learn](https://scikit-learn.org/) for machine learning algorithms
 - [FastAPI](https://fastapi.tiangolo.com/) for the web framework 
+- [NLTK](https://www.nltk.org/) for natural language processing
+- [fuzzywuzzy](https://github.com/seatgeek/fuzzywuzzy) for fuzzy string matching 

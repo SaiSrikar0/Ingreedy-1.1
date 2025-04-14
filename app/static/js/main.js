@@ -98,22 +98,22 @@ document.addEventListener('DOMContentLoaded', function() {
     /**
      * Send message to backend
      * @param {string} message - User message
-     * @returns {Promise<string>} - Bot response HTML
+     * @returns {Promise<Object>} - Bot response object with message and recipes
      */
     async function sendMessage(message) {
-        const formData = new FormData();
-        formData.append('message', message);
-        
-        const response = await fetch('/chat', {
+        const response = await fetch('/chat/simple', {
             method: 'POST',
-            body: formData
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ message: message })
         });
         
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         
-        return await response.text();
+        return await response.json();
     }
     
     /**
@@ -139,41 +139,84 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     /**
-     * Add bot response HTML to chat
-     * @param {string} html - Bot response HTML
+     * Add bot response to chat
+     * @param {Object} response - Bot response object with message and recipes
      */
-    function addBotResponse(html) {
-        const tempDiv = document.createElement('div');
-        tempDiv.innerHTML = html;
-        
+    function addBotResponse(response) {
         const messageNode = botMessageTemplate.content.cloneNode(true);
         const messageContent = messageNode.querySelector('.message-content');
         
         // Clear default <p> in the template
         messageContent.innerHTML = '';
         
-        // Add the response content
-        const responseContent = tempDiv.querySelector('.bot-response');
-        if (responseContent) {
-            messageContent.appendChild(responseContent);
-        } else {
-            // Fallback if no proper response structure
-            messageContent.innerHTML = html;
+        // Add the text message
+        const messageP = document.createElement('p');
+        messageP.textContent = response.message;
+        messageContent.appendChild(messageP);
+        
+        // Add recipe suggestions if available
+        if (response.recipes && response.recipes.length > 0) {
+            const suggestedRecipes = document.createElement('div');
+            suggestedRecipes.className = 'suggested-recipes';
+            
+            const suggestionsHeader = document.createElement('div');
+            suggestionsHeader.className = 'suggestions-header';
+            suggestionsHeader.textContent = 'Suggested Recipes:';
+            suggestedRecipes.appendChild(suggestionsHeader);
+            
+            const suggestionCards = document.createElement('div');
+            suggestionCards.className = 'suggestion-cards';
+            
+            response.recipes.forEach(recipe => {
+                const card = document.createElement('div');
+                card.className = 'suggestion-card';
+                card.dataset.id = recipe.id;
+                
+                // Create image container
+                const imgContainer = document.createElement('div');
+                imgContainer.className = 'suggestion-img';
+                
+                if (recipe.image) {
+                    const img = document.createElement('img');
+                    img.src = recipe.image;
+                    img.alt = recipe.title;
+                    imgContainer.appendChild(img);
+                } else {
+                    const placeholder = document.createElement('div');
+                    placeholder.className = 'placeholder-image';
+                    const icon = document.createElement('i');
+                    icon.className = 'fas fa-camera';
+                    placeholder.appendChild(icon);
+                    imgContainer.appendChild(placeholder);
+                }
+                
+                card.appendChild(imgContainer);
+                
+                // Create info container
+                const infoContainer = document.createElement('div');
+                infoContainer.className = 'suggestion-info';
+                
+                const title = document.createElement('h4');
+                title.className = 'suggestion-title';
+                title.textContent = recipe.title;
+                infoContainer.appendChild(title);
+                
+                const button = document.createElement('button');
+                button.className = 'view-suggestion-btn';
+                button.textContent = 'View Recipe';
+                button.addEventListener('click', () => fetchRecipeDetails(recipe.id));
+                infoContainer.appendChild(button);
+                
+                card.appendChild(infoContainer);
+                suggestionCards.appendChild(card);
+            });
+            
+            suggestedRecipes.appendChild(suggestionCards);
+            messageContent.appendChild(suggestedRecipes);
         }
         
         chatMessages.appendChild(messageNode);
-        
-        // Add click events to any recipe suggestion buttons in the response
-        const suggestionBtns = chatMessages.querySelectorAll('.view-suggestion-btn');
-        suggestionBtns.forEach(btn => {
-            btn.addEventListener('click', function() {
-                const recipeCard = this.closest('[data-id]');
-                if (recipeCard) {
-                    const recipeId = recipeCard.dataset.id;
-                    fetchRecipeDetails(recipeId);
-                }
-            });
-        });
+        scrollToBottom();
     }
     
     /**
@@ -270,21 +313,22 @@ document.addEventListener('DOMContentLoaded', function() {
      */
     async function fetchRecipeDetails(recipeId) {
         try {
-            const response = await fetch(`/recipes/search?query=id:${recipeId}`);
+            // Show loading state
+            recipeDetail.style.display = 'block';
+            recipeDetailContent.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Loading recipe details...</div>';
+            
+            // Use the dedicated recipe endpoint
+            const response = await fetch(`/recipes/${recipeId}`);
             
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             
-            const recipes = await response.json();
-            
-            if (recipes.length > 0) {
-                displayRecipeDetail(recipes[0]);
-            } else {
-                console.error('Recipe not found');
-            }
+            const recipe = await response.json();
+            displayRecipeDetail(recipe);
         } catch (error) {
             console.error('Error fetching recipe details:', error);
+            recipeDetailContent.innerHTML = '<div class="error">Sorry, we could not load the recipe details. Please try again.</div>';
         }
     }
     
@@ -353,7 +397,7 @@ document.addEventListener('DOMContentLoaded', function() {
         recipeDetailContent.innerHTML = '';
         recipeDetailContent.appendChild(detailContent);
         
-        // Show the detail view
+        // Ensure the detail view is visible
         recipeDetail.style.display = 'block';
     }
 }); 

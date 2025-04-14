@@ -1,12 +1,15 @@
 import numpy as np
 import pandas as pd
 import re
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import pairwise_distances
 import nltk
 import logging
+import random
+from collections import Counter
+from fuzzywuzzy import fuzz
 
 # Download NLTK resources
 try:
@@ -41,6 +44,11 @@ except Exception as e:
     
     stopwords = StopwordsProxy()
 
+# Local imports
+from app.api.recipe_service import RecipeService
+
+logger = logging.getLogger(__name__)
+
 class RecipeRecommender:
     """
     Recipe recommendation system using ML algorithms:
@@ -48,7 +56,7 @@ class RecipeRecommender:
     - Hierarchical clustering as fallback when K-means fails
     """
     
-    def __init__(self, recipe_service):
+    def __init__(self, recipe_service: RecipeService):
         """Initialize the recipe recommender with a recipe service"""
         self.recipe_service = recipe_service
         self.vectorizer = TfidfVectorizer(stop_words='english')
@@ -70,10 +78,156 @@ class RecipeRecommender:
             'yeast', 'noodles', 'apple', 'banana', 'orange', 'berries', 'grapes',
             'eggs', 'potatoes'  # Added common singular forms
         ]
+        
+        # Common cooking ingredients for better extraction
+        self.common_ingredients = self._load_common_ingredients()
+        
+        # Common recipe request phrases
+        self.recipe_request_phrases = [
+            "how to make", "recipe for", "how do i cook", "how do i make",
+            "how to cook", "how to prepare", "recipe of", "dish with",
+            "prepare", "want to make", "want to cook", "would like to make",
+            "would like to cook", "looking for recipe", "looking for a recipe",
+            "want a recipe", "want recipe", "need a recipe", "need recipe",
+            "show me recipe", "show me a recipe", "cook with", "i have",
+            "recipes with", "recipes using", "make with", "make using"
+        ]
+        
+        # Create patterns for recipe requests
+        self.recipe_request_pattern = re.compile(
+            r"(?i)(" + "|".join(re.escape(phrase) for phrase in self.recipe_request_phrases) + r")\s+([a-zA-Z\s]+)"
+        )
+    
+    def _load_common_ingredients(self) -> List[str]:
+        """Load a list of common cooking ingredients"""
+        try:
+            # In a real app, this would read from a curated data file
+            # For now, we'll use a simplified list
+            return [
+                "chicken", "beef", "pork", "lamb", "fish", "shrimp", "tofu",
+                "rice", "pasta", "noodles", "potatoes", "bread", "flour",
+                "tomatoes", "onions", "garlic", "carrots", "peppers", "spinach",
+                "broccoli", "cheese", "cream", "milk", "yogurt", "butter",
+                "eggs", "oil", "vinegar", "soy sauce", "sugar", "salt", "pepper",
+                "mushrooms", "corn", "beans", "lentils", "chickpeas", "herbs",
+                "basil", "cilantro", "parsley", "thyme", "rosemary", "oregano",
+                "cumin", "paprika", "cinnamon", "lemon", "lime", "orange",
+                "apples", "berries", "chocolate", "vanilla", "honey", "nuts",
+                "almonds", "peanuts", "walnuts", "bacon", "sausage", "quinoa",
+                "avocado", "cucumber", "zucchini", "eggplant", "cauliflower",
+                "cabbage", "kale", "celery", "coriander", "curry", "chili",
+                "mustard", "olives", "peas", "ginger", "asparagus", "coconut",
+                "cream cheese", "sour cream", "mozzarella", "cheddar", "parmesan",
+                "feta", "goat cheese", "lettuce", "arugula", "fennel", "beets",
+                "sweet potatoes", "pomegranate", "mango", "pineapple", "banana",
+                "peach", "pear", "plum", "figs", "dates", "raisins", "cranberries",
+                "blueberries", "strawberries", "raspberries", "blackberries",
+                "paneer", "ghee", "turmeric", "cardamom", "cloves", "cinnamon",
+                "star anise", "fennel seeds", "mustard seeds", "mint", "dill",
+                "capers", "anchovies", "tuna", "salmon", "cod", "tilapia",
+                "turkey", "duck", "goose", "quail", "venison", "bison", "veal",
+                "ham", "prosciutto", "salami", "pepperoni", "chorizo", "soy",
+                "tempeh", "seitan", "lentils", "black beans", "kidney beans",
+                "pinto beans", "chickpeas", "split peas", "barley", "oats",
+                "bulgur", "farro", "couscous", "polenta", "ketchup", "mayonnaise",
+                "relish", "jam", "jelly", "maple syrup", "pumpkin", "squash",
+                "zest", "greens", "chard", "endive", "brie", "camembert",
+                "blue cheese", "wheat", "baking soda", "baking powder", "yeast",
+                "cream of tartar", "cocoa", "molasses", "caramel", "cream",
+                "vanilla extract", "almond extract", "sprinkles", "food coloring",
+                "icing", "frosting", "pudding", "gelatin", "jam", "syrup",
+                "custard", "paste", "sauce", "broth", "stock", "puff pastry",
+                "phyllo dough", "tortillas", "pita", "naan", "focaccia",
+                "sourdough", "rye", "white bread", "whole wheat", "cereal"
+            ]
+        except Exception as e:
+            logger.error(f"Error loading ingredients: {e}")
+            return ["chicken", "beef", "rice", "pasta", "tomatoes", "onions", "garlic"]
     
     def extract_ingredients(self, message: str) -> List[str]:
         """Extract ingredient names from user message"""
         try:
+            # If message is a single word that might be an ingredient, handle it directly
+            message = message.strip().lower()
+            if len(message.split()) == 1 and len(message) > 2:
+                # Single word that might be an ingredient - return it directly
+                single_word = message
+                
+                # Check for plural forms
+                if single_word.endswith('es') and len(single_word) > 4:
+                    singular = single_word[:-2]  # Remove 'es'
+                    if singular in self.common_food_ingredients:
+                        return [singular]
+                elif single_word.endswith('s') and len(single_word) > 3:
+                    singular = single_word[:-1]  # Remove 's'
+                    if singular in self.common_food_ingredients:
+                        return [singular]
+                
+                # Check if it's in common ingredients list
+                if single_word in self.common_food_ingredients:
+                    return [single_word]
+                
+                # Special cases for common ingredients
+                if single_word == 'potato' or single_word == 'potatoes':
+                    return ['potatoes']
+                if single_word == 'egg' or single_word == 'eggs':
+                    return ['eggs']
+                if single_word == 'tomato' or single_word == 'tomatoes':
+                    return ['tomatoes']
+                if single_word == 'onion' or single_word == 'onions':
+                    return ['onions']
+                
+                # If it's not a common plural/singular case, still return it as potential ingredient
+                return [single_word]
+            
+            # Special case for common ingredient combinations
+            if "eggs and potatoes" in message or "potatoes and eggs" in message:
+                return ["eggs", "potatoes"]
+            if "eggs and potato" in message or "potato and eggs" in message:
+                return ["eggs", "potatoes"]
+            if "egg and potatoes" in message or "potatoes and egg" in message:
+                return ["eggs", "potatoes"]
+            if "egg and potato" in message or "potato and egg" in message:
+                return ["eggs", "potatoes"]
+                
+            # Process common conjunctions to better extract multiple ingredients
+            ingredients = []
+            
+            # First split by common separators like commas and "and"
+            parts = re.split(r',|\sand\s|\swith\s|\splus\s', message)
+            for part in parts:
+                part = part.strip()
+                if part:
+                    # Check for known ingredients in each part
+                    for ingredient in self.common_food_ingredients:
+                        if ingredient in part:
+                            ingredients.append(ingredient)
+                            break
+                    else:
+                        # If no known ingredient was found, add the whole part for further processing
+                        if len(part.split()) <= 2:  # Only add if it's a short phrase
+                            ingredients.append(part)
+            
+            # If we found ingredients through the split method, return them
+            if ingredients:
+                # Standard normalization for common ingredients
+                normalized_ingredients = []
+                for ing in ingredients:
+                    if ing == 'potato' or ing == 'potatoes':
+                        normalized_ingredients.append('potatoes')
+                    elif ing == 'egg' or ing == 'eggs':
+                        normalized_ingredients.append('eggs') 
+                    elif ing == 'tomato' or ing == 'tomatoes':
+                        normalized_ingredients.append('tomatoes')
+                    elif ing == 'onion' or ing == 'onions':
+                        normalized_ingredients.append('onions')
+                    else:
+                        normalized_ingredients.append(ing)
+                
+                # Remove duplicates while preserving order
+                seen = set()
+                return [x for x in normalized_ingredients if not (x in seen or seen.add(x))]
+            
             # Tokenize message
             tokens = word_tokenize(message.lower())
             
@@ -145,6 +299,12 @@ class RecipeRecommender:
             if 'potato' in message.lower() or 'potatoes' in message.lower():
                 if 'potato' not in ingredients and 'potatoes' not in ingredients:
                     ingredients.append('potatoes')
+            if 'tomato' in message.lower() or 'tomatoes' in message.lower():
+                if 'tomato' not in ingredients and 'tomatoes' not in ingredients:
+                    ingredients.append('tomatoes')
+            if 'onion' in message.lower() or 'onions' in message.lower():
+                if 'onion' not in ingredients and 'onions' not in ingredients:
+                    ingredients.append('onions')
             
             # Remove duplicates while preserving order
             seen = set()
@@ -170,6 +330,10 @@ class RecipeRecommender:
             key_ingredients = []
             msg_lower = message.lower()
             
+            # Check for single-word query that might be an ingredient
+            if len(msg_lower.split()) == 1 and len(msg_lower) > 2:
+                return [msg_lower]  # Return the single word as an ingredient
+            
             # Check for key ingredients in the examples
             if 'chicken' in msg_lower:
                 key_ingredients.append('chicken')
@@ -181,8 +345,20 @@ class RecipeRecommender:
                 key_ingredients.append('eggs')
             if 'potato' in msg_lower or 'potatoes' in msg_lower:
                 key_ingredients.append('potatoes')
+            if 'tomato' in msg_lower or 'tomatoes' in msg_lower:
+                key_ingredients.append('tomatoes')
+            if 'onion' in msg_lower or 'onions' in msg_lower:
+                key_ingredients.append('onions')
+            if 'butter' in msg_lower:
+                key_ingredients.append('butter')
+            if 'garlic' in msg_lower:
+                key_ingredients.append('garlic')
+            if 'cheese' in msg_lower:
+                key_ingredients.append('cheese')
+            if 'pasta' in msg_lower:
+                key_ingredients.append('pasta')
             
-            return key_ingredients if key_ingredients else ['chicken']  # Return at least something
+            return key_ingredients if key_ingredients else [msg_lower.split()[0]]  # Return first word if nothing else found
     
     def _preprocess_recipes(self, recipes: List[Dict[str, Any]]) -> pd.DataFrame:
         """Preprocess recipes for ML algorithms"""
@@ -338,4 +514,193 @@ class RecipeRecommender:
         # If K-means fails, use Hierarchical clustering
         hierarchical_results = await self._hierarchical_clustering(recipes_df, user_vector)
         
-        return hierarchical_results 
+        return hierarchical_results
+    
+    def is_asking_for_recipe(self, text: str) -> Tuple[bool, Optional[str]]:
+        """
+        Determine if the user is asking for a specific recipe.
+        Returns: (is_asking_for_recipe, recipe_name)
+        """
+        # First check if this is general conversation
+        if self.is_general_conversation(text.lower()):
+            return False, None
+        
+        # Check for "what can I make with" pattern - this should NOT be treated as asking for a specific recipe
+        ingredient_request_patterns = [
+            r"(?i)what can i make with\s+(.+)",
+            r"(?i)what can i cook with\s+(.+)",
+            r"(?i)recipes (using|with|containing)\s+(.+)",
+            r"(?i)dishes? with\s+(.+)",
+            r"(?i)i have\s+(.+)",
+            r"(?i)cook with\s+(.+)",
+        ]
+        
+        for pattern in ingredient_request_patterns:
+            if re.search(pattern, text):
+                return False, None
+        
+        # If the text is just a single food item, it's likely asking for recipes with that ingredient
+        # rather than a specific recipe name
+        if len(text.split()) == 1 and text.lower() in self.common_food_ingredients:
+            return False, None
+        
+        # Try to match recipe request patterns
+        match = self.recipe_request_pattern.search(text)
+        if match:
+            recipe_name = match.group(2).strip()
+            if recipe_name:
+                return True, recipe_name
+                
+        # Look for direct recipe names
+        direct_recipe_pattern = re.compile(r"(?i)(?:^|[^\w])([\w\s]+recipe|[\w\s]+dish)")
+        direct_match = direct_recipe_pattern.search(text)
+        if direct_match:
+            recipe_name = direct_match.group(1).strip()
+            if recipe_name:
+                return True, recipe_name
+                
+        # Check for asking about a specific food item
+        # This is a more relaxed check - just look for food items that might be recipes
+        for ingredient in self.common_ingredients:
+            # If the ingredient is mentioned as part of a phrase like "chicken curry" or "pasta carbonara"
+            ingredient_pattern = re.compile(rf"(?i)\b{re.escape(ingredient)}\s+([a-zA-Z\s]+)")
+            ingredient_match = ingredient_pattern.search(text)
+            if ingredient_match:
+                recipe_name = f"{ingredient} {ingredient_match.group(1).strip()}"
+                # Only return if it seems like a recipe name (e.g., "chicken curry", not just "chicken")
+                if len(recipe_name.split()) > 1:
+                    return True, recipe_name
+        
+        return False, None
+    
+    def is_general_conversation(self, text: str) -> bool:
+        """Check if the message is general conversation rather than a recipe request"""
+        # Common greetings and general phrases
+        greetings = [
+            "hi", "hello", "hey", "howdy", "hola", "greetings", "good morning", 
+            "good afternoon", "good evening", "what's up", "how are you", 
+            "how's it going", "how do you do", "nice to meet you", "thanks", 
+            "thank you", "thx", "ty"
+        ]
+        
+        # Very short messages are likely conversational
+        if len(text.split()) < 3:
+            for greeting in greetings:
+                if greeting in text.lower():
+                    return True
+            # Very short messages like "hi" or "hey"
+            if len(text) < 10:
+                return True
+        
+        # Check for common conversational phrases
+        conversational_phrases = [
+            "how are you", "what's new", "what do you do", "who are you",
+            "what can you do", "tell me about yourself", "nice to meet you",
+            "good to see you", "thanks", "thank you", "appreciate it",
+            "you're welcome", "no problem", "that's great", "awesome", "cool",
+            "nice", "good", "great", "how's your day", "how was your day",
+            "what's happening", "what's going on", "bye", "goodbye", "see you",
+            "talk to you later", "ttyl", "help", "can you help", "please help"
+        ]
+        
+        for phrase in conversational_phrases:
+            if phrase in text.lower():
+                return True
+                
+        return False
+    
+    async def get_conversational_response(self, text: str) -> str:
+        """Generate a friendly response for general conversation"""
+        text_lower = text.lower()
+        
+        # Handle different types of conversational messages
+        
+        # Greetings
+        if any(greeting in text_lower for greeting in ["hi", "hello", "hey", "howdy", "hola", "greetings"]):
+            responses = [
+                "Hello there! 👋 I'm Ingreedy, your cooking assistant. What would you like to cook today?",
+                "Hi! I can help you find delicious recipes based on ingredients you have. What are you in the mood for?",
+                "Hey! Ready to cook something amazing? Tell me what ingredients you have or what dish you'd like to make!",
+                "Hello! I'd be happy to suggest some recipes for you. What ingredients do you have on hand?"
+            ]
+            return random.choice(responses)
+            
+        # Time-based greetings
+        elif any(greeting in text_lower for greeting in ["good morning", "good afternoon", "good evening"]):
+            if "morning" in text_lower:
+                responses = [
+                    "Good morning! ☀️ How about something delicious for breakfast?",
+                    "Morning! Ready for some cooking inspiration to start your day?"
+                ]
+            elif "afternoon" in text_lower:
+                responses = [
+                    "Good afternoon! Looking for lunch ideas or planning dinner?",
+                    "Afternoon! What kind of meal are you planning today?"
+                ]
+            else:  # evening
+                responses = [
+                    "Good evening! Time for a delightful dinner. What are you in the mood for?",
+                    "Evening! Ready to cook something special for dinner tonight?"
+                ]
+            return random.choice(responses)
+            
+        # Thank you messages
+        elif any(thanks in text_lower for thanks in ["thanks", "thank you", "thx", "ty", "appreciate"]):
+            responses = [
+                "You're welcome! 😊 Anything else you'd like to cook?",
+                "Happy to help! Let me know if you need more recipe ideas.",
+                "Anytime! Cooking is more fun when we do it together. Need anything else?",
+                "My pleasure! I'm here whenever you need cooking inspiration."
+            ]
+            return random.choice(responses)
+            
+        # Help requests
+        elif "help" in text_lower or "can you" in text_lower or "how do you" in text_lower:
+            return "I can help you find recipes based on ingredients you have, or I can provide detailed instructions for specific dishes. Just let me know what ingredients you have or what dish you'd like to make!"
+            
+        # Goodbyes
+        elif any(bye in text_lower for bye in ["bye", "goodbye", "see you", "talk to you later", "ttyl"]):
+            responses = [
+                "Goodbye! Come back when you're hungry again! 👋",
+                "See you later! Happy cooking! 🍳",
+                "Talk to you soon! Enjoy your meal! 🍽️"
+            ]
+            return random.choice(responses)
+            
+        # Default response for other conversation
+        else:
+            responses = [
+                "I'm here to help with recipe ideas! Tell me what ingredients you have or what dish you'd like to make.",
+                "I'm your friendly recipe assistant! What would you like to cook today?",
+                "Looking for cooking inspiration? I can suggest recipes based on ingredients or help you make a specific dish.",
+                "Tell me what ingredients you have, and I'll find you something delicious to make!"
+            ]
+            return random.choice(responses)
+    
+    async def find_recipe_by_name(self, recipe_name: str) -> List[Dict[str, Any]]:
+        """
+        Find recipes matching a specific name
+        """
+        if not recipe_name:
+            return []
+        
+        # Search for recipe by name
+        recipes = await self.recipe_service.search_recipes(recipe_name)
+        
+        # If we got results, return them
+        if recipes:
+            return recipes
+            
+        # If we didn't get results, try to extract key terms
+        key_terms = recipe_name.split()
+        key_terms = [term for term in key_terms if len(term) > 3]
+        
+        # If we have key terms, try searching with them
+        if key_terms:
+            for term in key_terms:
+                recipes = await self.recipe_service.search_recipes(term)
+                if recipes:
+                    return recipes
+        
+        # If all else fails, return random recipes
+        return await self.recipe_service.get_random_recipes(5) 

@@ -221,19 +221,38 @@ class RecipeService:
         try:
             # Check if we have recipes locally first
             if not self.recipes_df.empty:
-                # Filter recipes based on ingredients
-                filtered_recipes = self.recipes_df[
-                    self.recipes_df['ingredients'].apply(
-                        lambda recipe_ingredients: all(
-                            any(ingredient.lower() in str(r_ingredient).lower() 
-                                for r_ingredient in recipe_ingredients)
-                            for ingredient in ingredients
-                        )
-                    )
-                ]
+                # Count how many of the requested ingredients are in each recipe
+                def count_matching_ingredients(recipe_ingredients, requested_ingredients):
+                    count = 0
+                    for requested in requested_ingredients:
+                        for recipe_ing in recipe_ingredients:
+                            ing_name = str(recipe_ing.get('name', '')).lower()
+                            if requested.lower() in ing_name:
+                                count += 1
+                                break
+                    return count
                 
+                # Make a copy of the dataframe to avoid modifying the original
+                temp_df = self.recipes_df.copy()
+                
+                # Apply counting function and filter recipes that have at least one ingredient
+                temp_df['ingredient_match_count'] = temp_df['ingredients'].apply(
+                    lambda recipe_ingredients: count_matching_ingredients(recipe_ingredients, ingredients)
+                )
+                
+                # Filter recipes with at least one ingredient match
+                filtered_recipes = temp_df[temp_df['ingredient_match_count'] > 0]
+                
+                # Sort by number of matching ingredients (descending)
                 if not filtered_recipes.empty:
-                    return filtered_recipes.to_dict('records')
+                    filtered_recipes = filtered_recipes.sort_values(by='ingredient_match_count', ascending=False)
+                    
+                    # Extract the results before trying to modify the DataFrame further
+                    result_recipes = filtered_recipes.copy()
+                    
+                    # Clean up the temporary column before returning
+                    result_recipes = result_recipes.drop(columns=['ingredient_match_count'])
+                    return result_recipes.to_dict('records')
             
             # Fetch from API if no local results
             ingredients_param = ",+".join(ingredients)
