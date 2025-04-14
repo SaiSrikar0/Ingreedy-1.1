@@ -216,42 +216,110 @@ class RecipeService:
             print(f"Error fetching recipe details: {e}")
             return None
     
-    async def get_recipes_by_ingredients(self, ingredients: List[str]) -> List[Dict[str, Any]]:
-        """Get recipes that match the given ingredients"""
+    async def get_recipes_by_ingredients(self, ingredients: List[str], operators: List[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get recipes that match the given ingredients.
+        
+        Args:
+            ingredients: List of ingredients to search for
+            operators: List of operators ('and', 'or') between ingredients. 
+                      If None, all ingredients are considered with 'and' logic.
+        """
         try:
             # Check if we have recipes locally first
             if not self.recipes_df.empty:
-                # Count how many of the requested ingredients are in each recipe
-                def count_matching_ingredients(recipe_ingredients, requested_ingredients):
-                    count = 0
-                    for requested in requested_ingredients:
-                        for recipe_ing in recipe_ingredients:
-                            ing_name = str(recipe_ing.get('name', '')).lower()
-                            if requested.lower() in ing_name:
-                                count += 1
-                                break
-                    return count
-                
                 # Make a copy of the dataframe to avoid modifying the original
                 temp_df = self.recipes_df.copy()
                 
-                # Apply counting function and filter recipes that have at least one ingredient
-                temp_df['ingredient_match_count'] = temp_df['ingredients'].apply(
-                    lambda recipe_ingredients: count_matching_ingredients(recipe_ingredients, ingredients)
+                # If no operators provided, default to 'and' logic for all ingredients
+                if not operators or len(operators) == 0:
+                    operators = ['and'] * (len(ingredients) - 1) if len(ingredients) > 1 else []
+                
+                # Group ingredients by 'and' operators to create required sets
+                required_groups = []
+                current_group = [ingredients[0]]
+                
+                for i, op in enumerate(operators):
+                    if op.lower() == 'and':
+                        # Add to current AND group
+                        current_group.append(ingredients[i+1])
+                    else:  # 'or' operator
+                        # Finish current AND group and start a new one
+                        required_groups.append(current_group)
+                        current_group = [ingredients[i+1]]
+                
+                # Add the last group
+                if current_group:
+                    required_groups.append(current_group)
+                
+                # Count matching ingredients and group coverage for each recipe
+                def evaluate_recipe_match(recipe_ingredients, required_groups):
+                    # Count total matches from all groups
+                    total_matches = 0
+                    
+                    # Count how many groups are fully covered
+                    groups_covered = 0
+                    
+                    # For each required group, check if all ingredients are present
+                    for group in required_groups:
+                        group_matches = 0
+                        for ingredient in group:
+                            ingredient_found = False
+                            for recipe_ing in recipe_ingredients:
+                                ing_name = str(recipe_ing.get('name', '')).lower()
+                                # More strict matching to ensure ingredient is actually present
+                                if ingredient.lower() in ing_name.split() or f"{ingredient.lower()}s" in ing_name.split():
+                                    total_matches += 1
+                                    group_matches += 1
+                                    ingredient_found = True
+                                    break
+                            
+                            # If an ingredient in an AND group is not found, the entire group fails
+                            if not ingredient_found and op.lower() == 'and':
+                                break
+                        
+                        # If all ingredients in this group are matched, count the group as covered
+                        if group_matches == len(group):
+                            groups_covered += 1
+                    
+                    return {
+                        'total_matches': total_matches,
+                        'groups_covered': groups_covered,
+                        'total_groups': len(required_groups),
+                        'percentage_matched': total_matches / sum(len(group) for group in required_groups) if required_groups else 0
+                    }
+                
+                # Apply evaluation function
+                match_results = temp_df['ingredients'].apply(
+                    lambda recipe_ingredients: evaluate_recipe_match(recipe_ingredients, required_groups)
                 )
                 
-                # Filter recipes with at least one ingredient match
-                filtered_recipes = temp_df[temp_df['ingredient_match_count'] > 0]
+                # Extract match metrics to columns
+                temp_df['total_matches'] = match_results.apply(lambda x: x['total_matches'])
+                temp_df['groups_covered'] = match_results.apply(lambda x: x['groups_covered'])
+                temp_df['total_groups'] = match_results.apply(lambda x: x['total_groups'])
+                temp_df['percentage_matched'] = match_results.apply(lambda x: x['percentage_matched'])
                 
-                # Sort by number of matching ingredients (descending)
+                # Filter recipes with complete matches for all AND groups
+                # For a recipe to match, it must have all ingredients in at least one AND group
+                filtered_recipes = temp_df[temp_df['groups_covered'] > 0]
+                
+                # Sort recipes in priority order:
+                # 1. Number of required groups fully covered (descending)
+                # 2. Percentage of ingredients matched (descending)
+                # 3. Total number of matching ingredients (descending)
+                # 4. Recipe title (alphabetical) as a tiebreaker
                 if not filtered_recipes.empty:
-                    filtered_recipes = filtered_recipes.sort_values(by='ingredient_match_count', ascending=False)
+                    filtered_recipes = filtered_recipes.sort_values(
+                        by=['groups_covered', 'percentage_matched', 'total_matches', 'title'], 
+                        ascending=[False, False, False, True]
+                    )
                     
                     # Extract the results before trying to modify the DataFrame further
                     result_recipes = filtered_recipes.copy()
                     
-                    # Clean up the temporary column before returning
-                    result_recipes = result_recipes.drop(columns=['ingredient_match_count'])
+                    # Clean up the temporary columns before returning
+                    result_recipes = result_recipes.drop(columns=['total_matches', 'groups_covered', 'total_groups', 'percentage_matched'])
                     return result_recipes.to_dict('records')
             
             # Fetch from API if no local results

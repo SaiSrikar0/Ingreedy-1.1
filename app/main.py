@@ -86,7 +86,7 @@ async def chat(request: Request, chat_request: ChatRequest):
         ]
         
         is_ingredient_query = False
-        ingredients = []
+        ingredient_extract_result = None
         
         for pattern in ingredient_patterns:
             match = re.search(pattern, message)
@@ -98,7 +98,7 @@ async def chat(request: Request, chat_request: ChatRequest):
                     ingredient_text = match.group(1)
                 
                 logger.info(f"Detected ingredient query: {ingredient_text}")
-                ingredients = recipe_recommender.extract_ingredients(ingredient_text)
+                ingredient_extract_result = recipe_recommender.extract_ingredients(ingredient_text)
                 break  # Found a match, no need to check other patterns
         
         # If no specific pattern matched, try general ingredient extraction
@@ -162,10 +162,15 @@ async def chat(request: Request, chat_request: ChatRequest):
                     )
             
             # Extract ingredients from the message
-            ingredients = recipe_recommender.extract_ingredients(message)
+            ingredient_extract_result = recipe_recommender.extract_ingredients(message)
         
-        # Log the extracted ingredients
+        # Handle ingredient extraction result - it's now a tuple of (ingredients, operators)
+        ingredients, operators = ingredient_extract_result
+        
+        # Log the extracted ingredients and operators
         logger.info(f"Extracted ingredients: {ingredients}")
+        if operators:
+            logger.info(f"Detected operators: {operators}")
         
         if not ingredients:
             # No ingredients found, provide a helpful message and some random recipes
@@ -179,8 +184,8 @@ async def chat(request: Request, chat_request: ChatRequest):
                 }
             )
             
-        # Find recipes matching the ingredients
-        recipes = await recipe_recommender.find_recipes_by_ingredients(ingredients)
+        # Find recipes matching the ingredients and operators
+        recipes = await recipe_recommender.find_recipes_by_ingredients((ingredients, operators))
         
         if not recipes:
             random_recipes = await recipe_service.get_random_recipes(3)
@@ -195,7 +200,20 @@ async def chat(request: Request, chat_request: ChatRequest):
             
         # Format a nice response with the matched recipes
         ingredients_list = ", ".join(ingredients)
-        response_message = f"Great! I found {len(recipes)} recipes using {ingredients_list}. Here's the best match:"
+        
+        # Include operator information in the response for clarity
+        if operators and len(operators) > 0:
+            operator_descriptions = []
+            for i, op in enumerate(operators):
+                if i < len(ingredients) - 1:
+                    operator_descriptions.append(f"{ingredients[i]} {op.upper()} {ingredients[i+1]}")
+            
+            if operator_descriptions:
+                response_message = f"Great! I found {len(recipes)} recipes matching your criteria ({', '.join(operator_descriptions)}). Here's the best match:"
+            else:
+                response_message = f"Great! I found {len(recipes)} recipes using {ingredients_list}. Here's the best match:"
+        else:
+            response_message = f"Great! I found {len(recipes)} recipes using {ingredients_list}. Here's the best match:"
         
         if len(recipes) > 0:
             # Add the top recipe details to the message
@@ -236,7 +254,7 @@ async def chat_simple(request: Request, chat_request: ChatRequest):
         ]
         
         is_ingredient_query = False
-        ingredients = []
+        ingredient_extract_result = None
         
         for pattern in ingredient_patterns:
             match = re.search(pattern, message)
@@ -248,7 +266,7 @@ async def chat_simple(request: Request, chat_request: ChatRequest):
                     ingredient_text = match.group(1)
                 
                 logger.info(f"Detected ingredient query: {ingredient_text}")
-                ingredients = recipe_recommender.extract_ingredients(ingredient_text)
+                ingredient_extract_result = recipe_recommender.extract_ingredients(ingredient_text)
                 break  # Found a match, no need to check other patterns
         
         # If no specific pattern matched, try general ingredient extraction
@@ -296,10 +314,15 @@ async def chat_simple(request: Request, chat_request: ChatRequest):
                     })
             
             # Extract ingredients from the message
-            ingredients = recipe_recommender.extract_ingredients(message)
+            ingredient_extract_result = recipe_recommender.extract_ingredients(message)
         
-        # Log the extracted ingredients
+        # Handle ingredient extraction result - it's now a tuple of (ingredients, operators)
+        ingredients, operators = ingredient_extract_result
+        
+        # Log the extracted ingredients and operators
         logger.info(f"Extracted ingredients: {ingredients}")
+        if operators:
+            logger.info(f"Detected operators: {operators}")
         
         if not ingredients:
             # No ingredients found, provide a helpful message and some random recipes
@@ -309,8 +332,22 @@ async def chat_simple(request: Request, chat_request: ChatRequest):
                 "recipes": random_recipes
             })
         
-        # Find recipes matching the ingredients
-        recipes = await recipe_recommender.find_recipes_by_ingredients(ingredients)
+        # Find recipes matching the ingredients and operators
+        try:
+            recipes = await recipe_recommender.find_recipes_by_ingredients((ingredients, operators))
+            
+            # Debug log for the recipes found
+            if recipes:
+                logger.info(f"Found {len(recipes)} recipes. Top match: {recipes[0]['title']}")
+                # Log the ingredients of the top recipe for debugging
+                if 'ingredients' in recipes[0]:
+                    recipe_ingredients = [ingredient.get('name', '') for ingredient in recipes[0]['ingredients']]
+                    logger.info(f"Top recipe ingredients: {recipe_ingredients}")
+            else:
+                logger.info("No recipes found matching the criteria")
+        except Exception as e:
+            logger.error(f"Error finding recipes: {str(e)}")
+            recipes = []
         
         if not recipes:
             random_recipes = await recipe_service.get_random_recipes(3)
@@ -321,7 +358,20 @@ async def chat_simple(request: Request, chat_request: ChatRequest):
         
         # Format a nice response with the matched recipes
         ingredients_list = ", ".join(ingredients)
-        response_message = f"Great! I found {len(recipes)} recipes using {ingredients_list}. Here's the best match: {recipes[0]['title']}. It takes about {recipes[0].get('readyInMinutes', '?')} minutes to prepare and serves {recipes[0].get('servings', '?')}."
+        
+        # Include operator information in the response for clarity
+        if operators and len(operators) > 0:
+            operator_descriptions = []
+            for i, op in enumerate(operators):
+                if i < len(ingredients) - 1:
+                    operator_descriptions.append(f"{ingredients[i]} {op.upper()} {ingredients[i+1]}")
+            
+            if operator_descriptions:
+                response_message = f"Great! I found {len(recipes)} recipes matching your criteria ({', '.join(operator_descriptions)}). Here's the best match: {recipes[0]['title']}. It takes about {recipes[0].get('readyInMinutes', '?')} minutes to prepare and serves {recipes[0].get('servings', '?')}."
+            else:
+                response_message = f"Great! I found {len(recipes)} recipes using {ingredients_list}. Here's the best match: {recipes[0]['title']}. It takes about {recipes[0].get('readyInMinutes', '?')} minutes to prepare and serves {recipes[0].get('servings', '?')}."
+        else:
+            response_message = f"Great! I found {len(recipes)} recipes using {ingredients_list}. Here's the best match: {recipes[0]['title']}. It takes about {recipes[0].get('readyInMinutes', '?')} minutes to prepare and serves {recipes[0].get('servings', '?')}."
         
         return JSONResponse({
             "message": response_message,

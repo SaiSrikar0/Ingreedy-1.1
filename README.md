@@ -1,42 +1,28 @@
-# Ingreedy - AI-Powered Recipe Chatbot
+# Ingreedy - AI Recipe Chatbot
 
-Ingreedy is an intelligent recipe chatbot that helps you find recipes based on the ingredients you have. It uses machine learning algorithms to match your ingredients with the best possible recipes.
-
-![Ingreedy Screenshot](docs/ingreedy-screenshot.png)
+Ingreedy is an AI-powered recipe chatbot that helps you find recipes based on ingredients you have at home. Simply tell the chatbot what ingredients you have, and it will suggest recipes you can make.
 
 ## Features
 
-- 🤖 **AI-Powered Chatbot**: Ask for recipes with the ingredients you have
-- 🔍 **Intelligent Search**: Finds recipes that match your ingredients
-- 📋 **Recipe Listing**: Browse through a collection of recipes
-- 📱 **Responsive Design**: Works on desktop and mobile devices
-- 🧠 **Machine Learning**: Uses K-means and Hierarchical clustering to find the best recipe matches
+- **Ingredient-based Recipe Search**: Find recipes based on ingredients you have
+- **Natural Language Understanding**: Ask in plain English what you can make with your ingredients
+- **Smart Recommendations**: Uses machine learning to find suitable recipes even without exact matches
+- **Conversational Interface**: Chat naturally with the bot to discover recipes
+- **Recipe Details**: View full ingredients, instructions, and nutritional information
 
-## Technologies Used
+## Tech Stack
 
 - **Backend**: Python with FastAPI
+- **Machine Learning**: K-means clustering and TF-IDF for ingredient matching
 - **Frontend**: HTML, CSS, JavaScript
-- **Machine Learning**: scikit-learn for K-means and Hierarchical clustering
-- **API**: Spoonacular API for recipe data (with local fallback)
+- **API**: Spoonacular Recipe API for comprehensive recipe data
 - **Data Processing**: Pandas for data manipulation
-- **Text Processing**: NLTK and fuzzywuzzy for natural language processing
 
-## How It Works
+## Screenshots
 
-1. **Ingredient Extraction**: The system extracts ingredients from your messages
-2. **Natural Language Processing**: Understands queries like "What can I make with eggs and potatoes?"
-3. **K-means Clustering**: Finds recipes with exact or nearest matching ingredients
-4. **Hierarchical Clustering**: Falls back to this if K-means can't find a good match
-5. **Recipe Recommendation**: Returns the best matching recipes based on your ingredients
+![Ingreedy Chat Interface](app/static/images/screenshot.png)
 
-## Getting Started
-
-### Prerequisites
-
-- Python 3.8+
-- A Spoonacular API key (get one at [spoonacular.com/food-api](https://spoonacular.com/food-api))
-
-### Installation
+## Setup and Installation
 
 1. Clone the repository:
    ```
@@ -44,98 +30,31 @@ Ingreedy is an intelligent recipe chatbot that helps you find recipes based on t
    cd ingreedy
    ```
 
-2. Create a virtual environment:
+2. Create a virtual environment and install dependencies:
    ```
    python -m venv venv
-   ```
-
-3. Activate the virtual environment:
-   - Windows: `venv\Scripts\activate`
-   - macOS/Linux: `source venv/bin/activate`
-
-4. Install the dependencies:
-   ```
+   venv\Scripts\activate  # On Windows
    pip install -r requirements.txt
    ```
 
-5. Create a `.env` file in the root directory with your Spoonacular API key:
+3. Create a `.env` file in the root directory with your Spoonacular API key:
    ```
    SPOONACULAR_API_KEY=your_api_key_here
    ```
 
-### Running the Application
-
-1. Start the development server:
-   
-   **Windows:**
+4. Run the application:
    ```
    python run.py
    ```
-   
-   **macOS/Linux:**
-   ```
-   python run.py
-   ```
-   
-   Alternatively, you can run:
-   ```
-   uvicorn app.main:app --reload --port 3000
-   ```
 
-2. Your browser should open automatically. If not, navigate to:
-   ```
-   http://localhost:3000
-   ```
+5. Open your browser and go to `http://localhost:3000`
 
-## Example Usage
+## Usage Examples
 
-1. Ask Ingreedy for recipes with your ingredients:
-   - "What can I make with chicken, broccoli, and rice?"
-   - "I have tomatoes, pasta, and garlic. What should I cook?"
-   - "Give me a recipe using eggs and potatoes"
-
-2. Browse the suggested recipes and view details about any recipe that interests you
-
-## Project Structure
-
-```
-ingreedy/
-├── app/                  # Main application package
-│   ├── api/              # API endpoints and services
-│   ├── data/             # Data storage (local recipe database)
-│   ├── ml/               # Machine learning models
-│   ├── static/           # Static files (CSS, JS, images)
-│   ├── templates/        # HTML templates
-│   └── main.py           # Entry point of the application
-├── venv/                 # Virtual environment (not tracked in git)
-├── run.py                # Script to run the application
-├── .env                  # Environment variables (not tracked in git)
-├── .gitignore            # Git ignore file
-├── LICENSE               # License file
-├── README.md             # This file
-└── requirements.txt      # Python dependencies
-```
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Missing Dependencies**: If you encounter a "ModuleNotFoundError", make sure all required packages are installed:
-   ```
-   pip install -r requirements.txt
-   ```
-
-2. **API Limit Reached**: The free tier of Spoonacular API has a daily limit. When reached, the app will fall back to using local recipe data.
-
-3. **Port Already in Use**: If port 3000 is already in use, change the port in `run.py` or use:
-   ```
-   uvicorn app.main:app --reload --port [different_port]
-   ```
-
-4. **Mac OS Permission Issues**: On macOS, you might need to grant permissions:
-   ```
-   chmod +x run.py
-   ```
+- "What can I make with eggs and potatoes?"
+- "I have chicken, broccoli, and rice"
+- "Show me vegetarian recipes with mushrooms"
+- "What can I cook with pasta and tomatoes?"
 
 ## Contributing
 
@@ -145,10 +64,8 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-## Acknowledgments
+## Acknowledgements
 
 - [Spoonacular API](https://spoonacular.com/food-api) for providing recipe data
-- [scikit-learn](https://scikit-learn.org/) for machine learning algorithms
-- [FastAPI](https://fastapi.tiangolo.com/) for the web framework 
-- [NLTK](https://www.nltk.org/) for natural language processing
-- [fuzzywuzzy](https://github.com/seatgeek/fuzzywuzzy) for fuzzy string matching 
+- FastAPI for the efficient API framework
+- scikit-learn for machine learning algorithms 

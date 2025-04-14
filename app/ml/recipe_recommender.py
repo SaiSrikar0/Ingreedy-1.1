@@ -144,11 +144,32 @@ class RecipeRecommender:
             logger.error(f"Error loading ingredients: {e}")
             return ["chicken", "beef", "rice", "pasta", "tomatoes", "onions", "garlic"]
     
-    def extract_ingredients(self, message: str) -> List[str]:
-        """Extract ingredient names from user message"""
+    def extract_ingredients(self, message: str) -> tuple:
+        """
+        Extract ingredient names from user message along with their connecting operators ('and'/'or')
+        
+        Returns:
+            Tuple of (ingredients_list, operators_list)
+        """
         try:
             # If message is a single word that might be an ingredient, handle it directly
             message = message.strip().lower()
+            
+            # Add key basic ingredients to common food ingredients if not already present
+            basic_ingredients = ['milk', 'eggs', 'egg', 'butter', 'flour', 'sugar', 'salt', 'pepper', 
+                               'oil', 'cheese', 'bread', 'rice', 'pasta', 'potato', 'potatoes', 
+                               'onion', 'onions', 'garlic', 'tomato', 'tomatoes']
+            
+            for basic in basic_ingredients:
+                if basic not in self.common_food_ingredients:
+                    self.common_food_ingredients.append(basic)
+            
+            # Direct matching for "milk and eggs" or similar common combinations
+            if "milk and eggs" in message or "eggs and milk" in message:
+                return ["milk", "eggs"], ["and"]
+            if "milk and egg" in message or "egg and milk" in message:
+                return ["milk", "eggs"], ["and"]
+            
             if len(message.split()) == 1 and len(message) > 2:
                 # Single word that might be an ingredient - return it directly
                 single_word = message
@@ -157,77 +178,199 @@ class RecipeRecommender:
                 if single_word.endswith('es') and len(single_word) > 4:
                     singular = single_word[:-2]  # Remove 'es'
                     if singular in self.common_food_ingredients:
-                        return [singular]
+                        return [singular], []
                 elif single_word.endswith('s') and len(single_word) > 3:
                     singular = single_word[:-1]  # Remove 's'
                     if singular in self.common_food_ingredients:
-                        return [singular]
+                        return [singular], []
                 
                 # Check if it's in common ingredients list
                 if single_word in self.common_food_ingredients:
-                    return [single_word]
+                    return [single_word], []
                 
                 # Special cases for common ingredients
                 if single_word == 'potato' or single_word == 'potatoes':
-                    return ['potatoes']
+                    return ['potatoes'], []
                 if single_word == 'egg' or single_word == 'eggs':
-                    return ['eggs']
+                    return ['eggs'], []
                 if single_word == 'tomato' or single_word == 'tomatoes':
-                    return ['tomatoes']
+                    return ['tomatoes'], []
                 if single_word == 'onion' or single_word == 'onions':
-                    return ['onions']
+                    return ['onions'], []
                 
                 # If it's not a common plural/singular case, still return it as potential ingredient
-                return [single_word]
+                return [single_word], []
             
             # Special case for common ingredient combinations
             if "eggs and potatoes" in message or "potatoes and eggs" in message:
-                return ["eggs", "potatoes"]
+                return ["eggs", "potatoes"], ["and"]
             if "eggs and potato" in message or "potato and eggs" in message:
-                return ["eggs", "potatoes"]
+                return ["eggs", "potatoes"], ["and"]
             if "egg and potatoes" in message or "potatoes and egg" in message:
-                return ["eggs", "potatoes"]
+                return ["eggs", "potatoes"], ["and"]
             if "egg and potato" in message or "potato and egg" in message:
-                return ["eggs", "potatoes"]
+                return ["eggs", "potatoes"], ["and"]
                 
-            # Process common conjunctions to better extract multiple ingredients
+            # Detect and process operators
+            # First change "and" and "or" to special tokens to make parsing easier
+            # Preserve original message for final extraction
+            original_message = message
+            
+            # Replace standalone "and" and "or" with special tokens
+            message = re.sub(r'\band\b', ' __AND__ ', message)
+            message = re.sub(r'\bor\b', ' __OR__ ', message)
+            message = re.sub(r',', ' __AND__ ', message)  # Treat commas as "and"
+            
+            # Process the manipulated message to extract ingredients and operators
+            parts = message.split()
             ingredients = []
+            operators = []
+            current_ingredient = []
             
-            # First split by common separators like commas and "and"
-            parts = re.split(r',|\sand\s|\swith\s|\splus\s', message)
             for part in parts:
-                part = part.strip()
-                if part:
-                    # Check for known ingredients in each part
-                    for ingredient in self.common_food_ingredients:
-                        if ingredient in part:
-                            ingredients.append(ingredient)
-                            break
-                    else:
-                        # If no known ingredient was found, add the whole part for further processing
-                        if len(part.split()) <= 2:  # Only add if it's a short phrase
-                            ingredients.append(part)
+                if part == '__AND__':
+                    # Found an AND operator
+                    if current_ingredient:
+                        # Only add the ingredient if we found something
+                        ingredient_text = ' '.join(current_ingredient)
+                        ingredients.append(ingredient_text)
+                        current_ingredient = []
+                    if len(ingredients) > 0:  # Only add operator if we have an ingredient before it
+                        operators.append('and')
+                elif part == '__OR__':
+                    # Found an OR operator
+                    if current_ingredient:
+                        # Only add the ingredient if we found something
+                        ingredient_text = ' '.join(current_ingredient)
+                        ingredients.append(ingredient_text)
+                        current_ingredient = []
+                    if len(ingredients) > 0:  # Only add operator if we have an ingredient before it
+                        operators.append('or')
+                else:
+                    # Part of an ingredient
+                    current_ingredient.append(part)
             
-            # If we found ingredients through the split method, return them
-            if ingredients:
-                # Standard normalization for common ingredients
-                normalized_ingredients = []
-                for ing in ingredients:
-                    if ing == 'potato' or ing == 'potatoes':
-                        normalized_ingredients.append('potatoes')
-                    elif ing == 'egg' or ing == 'eggs':
-                        normalized_ingredients.append('eggs') 
-                    elif ing == 'tomato' or ing == 'tomatoes':
-                        normalized_ingredients.append('tomatoes')
-                    elif ing == 'onion' or ing == 'onions':
-                        normalized_ingredients.append('onions')
+            # Add the last ingredient if there is one
+            if current_ingredient:
+                ingredient_text = ' '.join(current_ingredient)
+                ingredients.append(ingredient_text)
+            
+            # Now validate and normalize the ingredients
+            valid_ingredients = []
+            
+            for potential_ingredient in ingredients:
+                # Check with common ingredients list
+                found = False
+                for known_ingredient in self.common_food_ingredients:
+                    if known_ingredient in potential_ingredient:
+                        valid_ingredients.append(known_ingredient)
+                        found = True
+                        break
+                
+                if not found:
+                    # Apply specific normalization for common ingredients
+                    if 'potato' in potential_ingredient or 'potatoes' in potential_ingredient:
+                        valid_ingredients.append('potatoes')
+                    elif 'egg' in potential_ingredient or 'eggs' in potential_ingredient:
+                        valid_ingredients.append('eggs')
+                    elif 'tomato' in potential_ingredient or 'tomatoes' in potential_ingredient:
+                        valid_ingredients.append('tomatoes')
+                    elif 'onion' in potential_ingredient or 'onions' in potential_ingredient:
+                        valid_ingredients.append('onions')
+                    elif len(potential_ingredient.split()) <= 2:  # Only add short phrases
+                        valid_ingredients.append(potential_ingredient)
+            
+            # Direct check for common ingredients that might have been missed
+            message_lower = original_message.lower()
+            for basic in basic_ingredients:
+                if basic in message_lower and basic not in valid_ingredients:
+                    # Normalize to plural form for eggs
+                    if basic == 'egg':
+                        valid_ingredients.append('eggs')
                     else:
-                        normalized_ingredients.append(ing)
+                        valid_ingredients.append(basic)
+            
+            # If we successfully extracted ingredients, return them with operators
+            if valid_ingredients:
+                # Make sure we have n-1 operators for n ingredients
+                if len(valid_ingredients) > 1 and len(operators) < len(valid_ingredients) - 1:
+                    # Default to AND for missing operators
+                    operators.extend(['and'] * (len(valid_ingredients) - 1 - len(operators)))
                 
                 # Remove duplicates while preserving order
                 seen = set()
-                return [x for x in normalized_ingredients if not (x in seen or seen.add(x))]
+                unique_ingredients = []
+                unique_operators = []
+                
+                for i, ing in enumerate(valid_ingredients):
+                    if ing not in seen:
+                        seen.add(ing)
+                        unique_ingredients.append(ing)
+                        # Also add the corresponding operator if it exists
+                        if i < len(operators):
+                            unique_operators.append(operators[i])
+                
+                # Ensure we have the right number of operators
+                if len(unique_ingredients) > 1:
+                    unique_operators = unique_operators[:len(unique_ingredients)-1]
+                
+                return unique_ingredients, unique_operators
             
+            # Fall back to the original ingredient extraction if the above approach didn't work
+            # This will use the more thorough but less operator-aware approach
+            fallback_ingredients = self._extract_ingredients_fallback(original_message)
+            
+            # Default to AND operators
+            fallback_operators = ['and'] * (len(fallback_ingredients) - 1) if len(fallback_ingredients) > 1 else []
+            
+            return fallback_ingredients, fallback_operators
+            
+        except Exception as e:
+            # Log the error and return basic extraction as fallback
+            logging.error(f"Error in ingredient extraction: {e}")
+            
+            # Basic fallback extraction - hardcode basic ingredients
+            key_ingredients = []
+            msg_lower = message.lower()
+            
+            # Check for single-word query that might be an ingredient
+            if len(msg_lower.split()) == 1 and len(msg_lower) > 2:
+                return [msg_lower], []  # Return the single word as an ingredient
+            
+            # Check for key ingredients directly in message
+            if 'milk' in msg_lower:
+                key_ingredients.append('milk')
+            if 'egg' in msg_lower or 'eggs' in msg_lower:
+                key_ingredients.append('eggs')
+            if 'chicken' in msg_lower:
+                key_ingredients.append('chicken')
+            if 'broccoli' in msg_lower:
+                key_ingredients.append('broccoli')
+            if 'rice' in msg_lower:
+                key_ingredients.append('rice')
+            if 'potato' in msg_lower or 'potatoes' in msg_lower:
+                key_ingredients.append('potatoes')
+            if 'tomato' in msg_lower or 'tomatoes' in msg_lower:
+                key_ingredients.append('tomatoes')
+            if 'onion' in msg_lower or 'onions' in msg_lower:
+                key_ingredients.append('onions')
+            if 'butter' in msg_lower:
+                key_ingredients.append('butter')
+            if 'garlic' in msg_lower:
+                key_ingredients.append('garlic')
+            if 'cheese' in msg_lower:
+                key_ingredients.append('cheese')
+            if 'pasta' in msg_lower:
+                key_ingredients.append('pasta')
+            
+            # Default to AND operators
+            key_operators = ['and'] * (len(key_ingredients) - 1) if len(key_ingredients) > 1 else []
+            
+            return key_ingredients if key_ingredients else [msg_lower.split()[0]], key_operators
+    
+    def _extract_ingredients_fallback(self, message: str) -> List[str]:
+        """Fallback method for ingredient extraction without operator awareness"""
+        try:
             # Tokenize message
             tokens = word_tokenize(message.lower())
             
@@ -321,44 +464,11 @@ class RecipeRecommender:
                         unique_ingredients.append(clean_part)
             
             return unique_ingredients
-        
+            
         except Exception as e:
-            # Log the error and return basic extraction as fallback
-            logging.error(f"Error in ingredient extraction: {e}")
-            
-            # Basic fallback extraction
-            key_ingredients = []
-            msg_lower = message.lower()
-            
-            # Check for single-word query that might be an ingredient
-            if len(msg_lower.split()) == 1 and len(msg_lower) > 2:
-                return [msg_lower]  # Return the single word as an ingredient
-            
-            # Check for key ingredients in the examples
-            if 'chicken' in msg_lower:
-                key_ingredients.append('chicken')
-            if 'broccoli' in msg_lower:
-                key_ingredients.append('broccoli')
-            if 'rice' in msg_lower:
-                key_ingredients.append('rice')
-            if 'egg' in msg_lower or 'eggs' in msg_lower:
-                key_ingredients.append('eggs')
-            if 'potato' in msg_lower or 'potatoes' in msg_lower:
-                key_ingredients.append('potatoes')
-            if 'tomato' in msg_lower or 'tomatoes' in msg_lower:
-                key_ingredients.append('tomatoes')
-            if 'onion' in msg_lower or 'onions' in msg_lower:
-                key_ingredients.append('onions')
-            if 'butter' in msg_lower:
-                key_ingredients.append('butter')
-            if 'garlic' in msg_lower:
-                key_ingredients.append('garlic')
-            if 'cheese' in msg_lower:
-                key_ingredients.append('cheese')
-            if 'pasta' in msg_lower:
-                key_ingredients.append('pasta')
-            
-            return key_ingredients if key_ingredients else [msg_lower.split()[0]]  # Return first word if nothing else found
+            # Log the error and return empty list
+            logging.error(f"Error in fallback ingredient extraction: {e}")
+            return []
     
     def _preprocess_recipes(self, recipes: List[Dict[str, Any]]) -> pd.DataFrame:
         """Preprocess recipes for ML algorithms"""
@@ -481,8 +591,13 @@ class RecipeRecommender:
             # No ingredients provided, return random recipes
             return await self.recipe_service.get_random_recipes(5)
         
+        # Extract operators if this is a tuple with ingredients and operators
+        operators = []
+        if isinstance(ingredients, tuple) and len(ingredients) == 2:
+            ingredients, operators = ingredients
+        
         # First try to get recipes with exact ingredients from API
-        api_recipes = await self.recipe_service.get_recipes_by_ingredients(ingredients)
+        api_recipes = await self.recipe_service.get_recipes_by_ingredients(ingredients, operators)
         
         if api_recipes:
             return api_recipes
