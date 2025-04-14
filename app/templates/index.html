@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ingreedy - Smart Recipe Chatbot</title>
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/styles.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="logo-container">
+                <i class="fas fa-utensils logo-icon"></i>
+                <h1>Ingreedy</h1>
+            </div>
+            <p class="tagline">Your AI-powered recipe assistant</p>
+        </header>
+
+        <div class="main-content">
+            <!-- Recipe List Panel -->
+            <div class="recipe-panel">
+                <div class="search-container">
+                    <input type="text" id="recipe-search" placeholder="Search recipes..." class="search-input">
+                    <button id="search-btn" class="search-btn"><i class="fas fa-search"></i></button>
+                </div>
+                <div class="recipes-container" id="recipes-list">
+                    {% for recipe in recipes %}
+                    <div class="recipe-card" data-id="{{ recipe.id }}">
+                        <div class="recipe-image">
+                            {% if recipe.image %}
+                            <img src="{{ recipe.image }}" alt="{{ recipe.title }}">
+                            {% else %}
+                            <div class="placeholder-image"><i class="fas fa-camera"></i></div>
+                            {% endif %}
+                        </div>
+                        <div class="recipe-info">
+                            <h3 class="recipe-title">{{ recipe.title }}</h3>
+                            <div class="recipe-meta">
+                                <span><i class="far fa-clock"></i> {{ recipe.readyInMinutes }} min</span>
+                                <span><i class="fas fa-users"></i> {{ recipe.servings }} servings</span>
+                            </div>
+                            <button class="view-recipe-btn">View Recipe</button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Chat and Recipe Detail Panel -->
+            <div class="right-panel">
+                <!-- Recipe Detail View (initially hidden) -->
+                <div class="recipe-detail" id="recipe-detail">
+                    <button class="close-detail-btn"><i class="fas fa-times"></i></button>
+                    <div class="recipe-detail-content" id="recipe-detail-content"></div>
+                </div>
+
+                <!-- Chat Interface -->
+                <div class="chat-container" id="chat-container">
+                    <div class="chat-header">
+                        <div class="chat-avatar">
+                            <i class="fas fa-robot"></i>
+                        </div>
+                        <div class="chat-title">
+                            <h2>Ingreedy Bot</h2>
+                            <p>Ask me to find recipes with your ingredients!</p>
+                        </div>
+                    </div>
+                    
+                    <div class="chat-messages" id="chat-messages">
+                        <div class="message bot-message">
+                            <div class="message-avatar"><i class="fas fa-robot"></i></div>
+                            <div class="message-content">
+                                <p>👋 Hi there! I'm Ingreedy, your recipe assistant. Tell me what ingredients you have, and I'll find the perfect recipes for you!</p>
+                                <p>Try something like: <em>"I have chicken, broccoli, and rice"</em> or <em>"What can I make with eggs and potatoes?"</em></p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <form id="chat-form" class="chat-input">
+                        <input type="text" id="user-input" placeholder="Type your ingredients..." autocomplete="off">
+                        <button type="submit" id="send-btn">
+                            <i class="fas fa-paper-plane"></i>
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recipe Template for JS to clone -->
+    <template id="recipe-detail-template">
+        <div class="recipe-header">
+            <img src="" alt="" class="recipe-detail-img">
+            <div class="recipe-header-info">
+                <h2 class="recipe-detail-title"></h2>
+                <div class="recipe-tags">
+                    <span class="time-tag"><i class="far fa-clock"></i> <span class="prep-time"></span> min</span>
+                    <span class="servings-tag"><i class="fas fa-users"></i> <span class="servings"></span></span>
+                </div>
+            </div>
+        </div>
+        <div class="recipe-summary"></div>
+        <div class="recipe-sections">
+            <div class="ingredients-section">
+                <h3><i class="fas fa-list"></i> Ingredients</h3>
+                <ul class="ingredients-list"></ul>
+            </div>
+            <div class="instructions-section">
+                <h3><i class="fas fa-tasks"></i> Instructions</h3>
+                <div class="instructions-content"></div>
+            </div>
+        </div>
+        <div class="recipe-footer">
+            <a href="#" target="_blank" class="source-link">View Original Recipe</a>
+        </div>
+    </template>
+
+    <!-- Message templates -->
+    <template id="user-message-template">
+        <div class="message user-message">
+            <div class="message-content">
+                <p></p>
+            </div>
+        </div>
+    </template>
+
+    <template id="bot-message-template">
+        <div class="message bot-message">
+            <div class="message-avatar"><i class="fas fa-robot"></i></div>
+            <div class="message-content">
+                <p></p>
+            </div>
+        </div>
+    </template>
+
+    <template id="thinking-template">
+        <div class="message bot-message thinking">
+            <div class="message-avatar"><i class="fas fa-robot"></i></div>
+            <div class="message-content">
+                <div class="thinking-dots">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <template id="recipe-suggestion-template">
+        <div class="suggested-recipes">
+            <div class="suggestions-header">Suggested Recipes:</div>
+            <div class="suggestion-cards"></div>
+        </div>
+    </template>
+
+    <script src="{{ url_for('static', path='/js/main.js') }}"></script>
+</body>
+</html> 

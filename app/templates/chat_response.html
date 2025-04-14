@@ -1,0 +1,30 @@
+{% if recipes %}
+<div class="bot-response">
+    <p>{{ response }}</p>
+    
+    <div class="suggested-recipes">
+        <div class="suggestions-header">Suggested Recipes:</div>
+        <div class="suggestion-cards">
+            {% for recipe in recipes %}
+            <div class="suggestion-card" data-id="{{ recipe.id }}">
+                <div class="suggestion-img">
+                    {% if recipe.image %}
+                    <img src="{{ recipe.image }}" alt="{{ recipe.title }}">
+                    {% else %}
+                    <div class="placeholder-image"><i class="fas fa-camera"></i></div>
+                    {% endif %}
+                </div>
+                <div class="suggestion-info">
+                    <h4 class="suggestion-title">{{ recipe.title }}</h4>
+                    <button class="view-suggestion-btn">View Recipe</button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="bot-response">
+    <p>I couldn't find any recipes with those ingredients. Try asking for different ingredients or check if you spelled them correctly.</p>
+</div>
+{% endif %} 
