@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ingreedy - Smart Recipe Chatbot</title>
-    <link rel="stylesheet" href="{{ url_for('static', path='/css/styles.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', path='/css/styles.css') }}?v=1.1">
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
@@ -12,17 +12,30 @@
     <div class="app-container">
         <!-- Header -->
         <header class="header">
+            <div class="theme-switch-container">
+                <label class="theme-switch" for="theme-toggle">
+                    <input type="checkbox" id="theme-toggle">
+                    <span class="slider"></span>
+                </label>
+                <i class="fas fa-moon theme-icon" id="theme-icon"></i>
+            </div>
             <div class="logo-container">
                 <i class="fas fa-utensils logo-icon"></i>
                 <h1>Ingreedy</h1>
             </div>
             <p class="tagline">Your AI-powered recipe assistant</p>
+            <button id="view-all-recipes-btn" class="view-all-recipes-btn">
+                <i class="fas fa-book-open"></i> View All Recipes
+            </button>
         </header>
 
         <div class="main-content">
             <!-- Recipe List Panel -->
             <div class="recipe-panel">
                 <div class="search-container">
+                    <button id="back-home-btn" class="back-home-btn">
+                        <i class="fas fa-home"></i> Home
+                    </button>
                     <input type="text" id="recipe-search" placeholder="Search recipes..." class="search-input">
                     <button id="search-btn" class="search-btn"><i class="fas fa-search"></i></button>
                 </div>
@@ -35,6 +48,7 @@
                             {% else %}
                             <div class="placeholder-image"><i class="fas fa-camera"></i></div>
                             {% endif %}
+                            <div class="recipe-image-overlay">{{ recipe.title }}</div>
                         </div>
                         <div class="recipe-info">
                             <h3 class="recipe-title">{{ recipe.title }}</h3>

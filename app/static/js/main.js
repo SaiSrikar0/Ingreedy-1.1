@@ -20,6 +20,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize event listeners
     initEventListeners();
     
+    // Initialize the theme toggle
+    initThemeToggle();
+    
     /**
      * Initialize all event listeners
      */
@@ -51,6 +54,22 @@ document.addEventListener('DOMContentLoaded', function() {
         closeDetailBtn.addEventListener('click', function() {
             recipeDetail.style.display = 'none';
         });
+        
+        // Add event listener for the view all recipes button
+        const viewAllRecipesBtn = document.getElementById('view-all-recipes-btn');
+        if (viewAllRecipesBtn) {
+            viewAllRecipesBtn.addEventListener('click', function() {
+                loadAllRecipes();
+            });
+        }
+        
+        // Add event listener for the back home button
+        const backHomeBtn = document.getElementById('back-home-btn');
+        if (backHomeBtn) {
+            backHomeBtn.addEventListener('click', function() {
+                loadInitialRecipes();
+            });
+        }
     }
     
     /**
@@ -190,24 +209,23 @@ document.addEventListener('DOMContentLoaded', function() {
                     imgContainer.appendChild(placeholder);
                 }
                 
-                card.appendChild(imgContainer);
-                
-                // Create info container
-                const infoContainer = document.createElement('div');
-                infoContainer.className = 'suggestion-info';
+                // Find where the button is created
+                const btnContainer = document.createElement('div');
+                btnContainer.className = 'suggestion-info';
                 
                 const title = document.createElement('h4');
                 title.className = 'suggestion-title';
                 title.textContent = recipe.title;
-                infoContainer.appendChild(title);
+                btnContainer.appendChild(title);
                 
-                const button = document.createElement('button');
-                button.className = 'view-suggestion-btn';
-                button.textContent = 'View Recipe';
-                button.addEventListener('click', () => fetchRecipeDetails(recipe.id));
-                infoContainer.appendChild(button);
+                const viewBtn = document.createElement('button');
+                viewBtn.className = 'view-suggestion-btn';
+                viewBtn.textContent = 'View Recipe';
+                viewBtn.style.backgroundColor = '#ff6b6b'; // Set the Ingreedy red color explicitly
+                btnContainer.appendChild(viewBtn);
                 
-                card.appendChild(infoContainer);
+                card.appendChild(imgContainer);
+                card.appendChild(btnContainer);
                 suggestionCards.appendChild(card);
             });
             
@@ -283,7 +301,7 @@ document.addEventListener('DOMContentLoaded', function() {
             recipeCard.dataset.id = recipe.id;
             
             recipeCard.innerHTML = `
-                <div class="recipe-image">
+                <div class="recipe-image" data-title="${recipe.title}">
                     ${recipe.image ? 
                         `<img src="${recipe.image}" alt="${recipe.title}">` : 
                         `<div class="placeholder-image"><i class="fas fa-camera"></i></div>`}
@@ -399,5 +417,243 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Ensure the detail view is visible
         recipeDetail.style.display = 'block';
+    }
+
+    function initThemeToggle() {
+        const themeToggle = document.getElementById('theme-toggle');
+        const themeIcon = document.getElementById('theme-icon');
+        
+        // Check if user has a saved preference
+        const currentTheme = localStorage.getItem('theme');
+        if (currentTheme === 'dark') {
+            document.body.classList.add('dark-theme');
+            themeToggle.checked = true;
+            themeIcon.classList.replace('fa-moon', 'fa-sun');
+        }
+        
+        // Theme toggle event listener
+        themeToggle.addEventListener('change', function() {
+            if (this.checked) {
+                document.body.classList.add('dark-theme');
+                localStorage.setItem('theme', 'dark');
+                themeIcon.classList.replace('fa-moon', 'fa-sun');
+            } else {
+                document.body.classList.remove('dark-theme');
+                localStorage.setItem('theme', 'light');
+                themeIcon.classList.replace('fa-sun', 'fa-moon');
+            }
+        });
+    }
+
+    // Function to load initial recipes (homepage)
+    async function loadInitialRecipes() {
+        try {
+            // Show loading state
+            const recipesList = document.getElementById('recipes-list');
+            recipesList.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i><p>Loading recipes...</p></div>';
+            
+            // Fetch random recipes for homepage
+            const response = await fetch('/');
+            
+            if (!response.ok) {
+                throw new Error('Failed to fetch recipes');
+            }
+            
+            // Since we're fetching the homepage HTML, we need to extract just the recipes container
+            const html = await response.text();
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = html;
+            
+            // Get the recipes container HTML
+            const newRecipesContainer = tempDiv.querySelector('#recipes-list');
+            if (newRecipesContainer) {
+                recipesList.innerHTML = newRecipesContainer.innerHTML;
+            } else {
+                recipesList.innerHTML = '<div class="error"><p>Could not load recipes.</p></div>';
+            }
+            
+            // Add event listeners to the recipe cards
+            addRecipeCardEventListeners();
+            
+        } catch (error) {
+            console.error('Error loading initial recipes:', error);
+            document.getElementById('recipes-list').innerHTML = 
+                '<div class="error"><p>Error loading recipes. Please try again later.</p></div>';
+        }
+    }
+
+    // Function to load all recipes (updated to use the new endpoint)
+    async function loadAllRecipes() {
+        try {
+            // Show loading state
+            const recipesList = document.getElementById('recipes-list');
+            recipesList.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i><p>Loading all recipes...</p></div>';
+            
+            // Fetch all recipes from the new endpoint
+            const response = await fetch('/api/recipes/all');
+            
+            if (!response.ok) {
+                throw new Error(`Failed to fetch recipes: ${response.status} ${response.statusText}`);
+            }
+            
+            const recipes = await response.json();
+            
+            // Clear loading indicator
+            recipesList.innerHTML = '';
+            
+            if (!recipes || recipes.length === 0) {
+                recipesList.innerHTML = '<div class="error"><p>No recipes found.</p></div>';
+                return;
+            }
+            
+            // Render all recipes
+            recipes.forEach(recipe => {
+                const recipeCard = createRecipeCard(recipe);
+                recipesList.appendChild(recipeCard);
+            });
+            
+            // Add event listeners to the new recipe cards
+            addRecipeCardEventListeners();
+            
+        } catch (error) {
+            console.error('Error loading all recipes:', error);
+            document.getElementById('recipes-list').innerHTML = 
+                `<div class="error"><p>Error loading recipes: ${error.message}</p><p>Please try again later.</p></div>`;
+        }
+    }
+
+    // Updated function to create a recipe card with visible title overlay
+    function createRecipeCard(recipe) {
+        const card = document.createElement('div');
+        card.className = 'recipe-card';
+        card.dataset.id = recipe.id;
+        
+        let imageHtml = '';
+        if (recipe.image) {
+            imageHtml = `
+                <div class="recipe-image">
+                    <img src="${recipe.image}" alt="${recipe.title}">
+                    <div class="recipe-image-overlay">${recipe.title}</div>
+                </div>`;
+        } else {
+            imageHtml = `
+                <div class="recipe-image">
+                    <div class="placeholder-image"><i class="fas fa-camera"></i></div>
+                    <div class="recipe-image-overlay">${recipe.title}</div>
+                </div>`;
+        }
+        
+        card.innerHTML = `
+            ${imageHtml}
+            <div class="recipe-info">
+                <h3 class="recipe-title">${recipe.title}</h3>
+                <div class="recipe-meta">
+                    <span><i class="far fa-clock"></i> ${recipe.readyInMinutes} min</span>
+                    <span><i class="fas fa-users"></i> ${recipe.servings} servings</span>
+                </div>
+                <button class="view-recipe-btn">View Recipe</button>
+            </div>
+        `;
+        
+        return card;
+    }
+
+    // Function to add event listeners to recipe cards
+    function addRecipeCardEventListeners() {
+        const recipeCards = document.querySelectorAll('.recipe-card');
+        
+        recipeCards.forEach(card => {
+            // Remove any existing event listeners to avoid duplicates
+            const clonedCard = card.cloneNode(true);
+            card.parentNode.replaceChild(clonedCard, card);
+            
+            // Get the view recipe button in this card
+            const viewRecipeBtn = clonedCard.querySelector('.view-recipe-btn');
+            
+            // Add click event to the entire card
+            clonedCard.addEventListener('click', function(e) {
+                // Only proceed if the click wasn't on the button (button has its own handler)
+                if (!e.target.closest('.view-recipe-btn')) {
+                    const recipeId = this.dataset.id;
+                    loadRecipeDetail(recipeId);
+                }
+            });
+            
+            // Add click event to the view recipe button
+            if (viewRecipeBtn) {
+                viewRecipeBtn.addEventListener('click', function(e) {
+                    e.stopPropagation(); // Prevent the card click from firing
+                    const recipeId = clonedCard.dataset.id;
+                    loadRecipeDetail(recipeId);
+                });
+            }
+        });
+    }
+
+    // Function to load recipe details (assuming this exists elsewhere in your code)
+    async function loadRecipeDetail(recipeId) {
+        try {
+            // Show loading in recipe detail
+            const recipeDetailContainer = document.getElementById('recipe-detail-content');
+            recipeDetailContainer.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i><p>Loading recipe details...</p></div>';
+            
+            // Show the recipe detail container
+            document.getElementById('recipe-detail').style.display = 'block';
+            document.getElementById('chat-container').style.display = 'none';
+            
+            // Fetch recipe details
+            const response = await fetch(`/recipes/${recipeId}`);
+            
+            if (!response.ok) {
+                throw new Error('Failed to fetch recipe details');
+            }
+            
+            const recipe = await response.json();
+            
+            // Get the recipe detail template
+            const template = document.getElementById('recipe-detail-template');
+            const content = template.content.cloneNode(true);
+            
+            // Populate the template with recipe data
+            content.querySelector('.recipe-detail-img').src = recipe.image || '';
+            content.querySelector('.recipe-detail-img').alt = recipe.title;
+            content.querySelector('.recipe-detail-title').textContent = recipe.title;
+            content.querySelector('.prep-time').textContent = recipe.readyInMinutes;
+            content.querySelector('.servings').textContent = recipe.servings;
+            
+            // Add the summary
+            content.querySelector('.recipe-summary').innerHTML = recipe.summary;
+            
+            // Add ingredients
+            const ingredientsList = content.querySelector('.ingredients-list');
+            recipe.ingredients.forEach(ingredient => {
+                const li = document.createElement('li');
+                li.textContent = `${ingredient.amount} ${ingredient.unit} ${ingredient.name}`;
+                ingredientsList.appendChild(li);
+            });
+            
+            // Add instructions
+            content.querySelector('.instructions-content').innerHTML = recipe.instructions;
+            
+            // Add source link
+            const sourceLink = content.querySelector('.source-link');
+            sourceLink.href = recipe.sourceUrl;
+            
+            // Clear the container and add the populated template
+            recipeDetailContainer.innerHTML = '';
+            recipeDetailContainer.appendChild(content);
+            
+            // Add event listener to close button
+            const closeBtn = document.querySelector('.close-detail-btn');
+            closeBtn.addEventListener('click', function() {
+                document.getElementById('recipe-detail').style.display = 'none';
+                document.getElementById('chat-container').style.display = 'block';
+            });
+            
+        } catch (error) {
+            console.error('Error loading recipe detail:', error);
+            document.getElementById('recipe-detail-content').innerHTML = 
+                '<div class="error"><p>Error loading recipe details. Please try again later.</p></div>';
+        }
     }
 }); 

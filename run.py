@@ -6,7 +6,7 @@ import time
 from dotenv import load_dotenv
 
 # Load environment variables
-load_dotenv()
+load_dotenv(dotenv_path=".env")
 
 # Check for required environment variables
 if not os.getenv("SPOONACULAR_API_KEY"):

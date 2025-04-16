@@ -478,6 +478,17 @@ async def health_check():
     """Health check endpoint"""
     return {"status": "healthy"}
 
+@app.get("/api/recipes/all", response_class=JSONResponse)
+async def get_all_recipes():
+    """Get all available recipes"""
+    try:
+        # Use the get_random_recipes function since it already handles both local and API data
+        recipes = await recipe_service.get_random_recipes(50)
+        return recipes
+    except Exception as e:
+        logger.error(f"Error fetching all recipes: {e}")
+        return []
+
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=True) 
