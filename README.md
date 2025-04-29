@@ -9,6 +9,7 @@ Ingreedy is an AI-powered recipe chatbot that helps you find recipes based on in
 - **Smart Recommendations**: Uses machine learning to find suitable recipes even without exact matches
 - **Conversational Interface**: Chat naturally with the bot to discover recipes
 - **Recipe Details**: View full ingredients, instructions, and nutritional information
+- **Indian Cuisine Focus**: Specialized in Indian recipes with ingredient variations support
 
 ## Tech Stack
 
@@ -22,57 +23,22 @@ Ingreedy is an AI-powered recipe chatbot that helps you find recipes based on in
 
 ## Data Flow Diagram
 
+```mermaid
+graph TD
+    A[User Interface] -->|HTTP POST| B[FastAPI Backend]
+    B -->|Text Analysis| C[Google Cloud NLP]
+    B -->|Recipe Search| D[Spoonacular API]
+    B -->|ML Processing| E[Recipe Recommender]
+    E -->|If needed| D
+    C -->|Ingredients| E
+    E -->|Recipes| B
+    B -->|Response| A
 ```
-┌─────────────────┐         ┌─────────────────┐         ┌─────────────────┐
-│                 │         │                 │         │                 │
-│  User Interface │         │  Backend API    │         │  Recipe Service │
-│                 │         │                 │         │                 │
-└────────┬────────┘         └────────┬────────┘         └────────┬────────┘
-         │                           │                           │
-         ▼                           ▼                           ▼
-┌─────────────────┐         ┌─────────────────┐         ┌─────────────────┐
-│                 │  HTTP   │                 │  API    │                 │
-│ User enters     │ ───────►│ FastAPI         │ ───────►│ Spoonacular API │
-│ ingredients     │  POST   │ processes       │  GET    │                 │
-│                 │         │ request         │         │                 │
-└─────────────────┘         └────────┬────────┘         └─────────────────┘
-                                     │                           ▲
-                                     ▼                           │
-                            ┌─────────────────┐                  │
-                            │                 │                  │
-                            │ ML Recommender  │                  │
-                            │ processes       │──────────────────┘
-                            │ ingredients     │   If needed
-                            │                 │
-                            └────────┬────────┘
-                                     │
-                                     ▼
-                            ┌─────────────────┐
-                            │                 │
-                            │ Response with   │
-                            │ recipe          │
-                            │ recommendations │
-                            │                 │
-                            └─────────────────┘
-```
-
-This diagram illustrates the flow of data in the Ingreedy application:
-
-1. The user enters ingredients or a query through the user interface
-2. The frontend sends an HTTP POST request to the FastAPI backend
-3. The backend processes the request using Google Cloud Natural Language API for ingredient extraction
-4. If exact matches are needed, the backend queries the Spoonacular API directly
-5. For more complex matching, the ML Recommender processes the ingredients using clustering algorithms
-6. The results are formatted and returned to the user interface as recipe recommendations
-
-## Screenshots
-
-![Ingreedy Chat Interface](app/static/images/screenshot.png)
 
 ## Setup and Installation
 
 1. Clone the repository:
-   ```
+   ```bash
    git clone https://github.com/SaiSrikar0/Ingreedy-1.1.git
    cd Ingreedy-1.1
    ```
@@ -80,23 +46,33 @@ This diagram illustrates the flow of data in the Ingreedy application:
 2. Create a virtual environment and install dependencies:
    
    **Windows:**
-   ```
+   ```bash
    python -m venv venv
    venv\Scripts\activate
    pip install -r requirements.txt
    ```
    
    **macOS/Linux:**
-   ```
+   ```bash
    python3 -m venv venv
    source venv/bin/activate
    pip install -r requirements.txt
    ```
 
 3. Create a `.env` file in the root directory with your API keys:
-   ```
+   ```env
+   # API Keys
    SPOONACULAR_API_KEY=your_api_key_here
    GOOGLE_APPLICATION_CREDENTIALS=path_to_your_google_credentials.json
+
+   # Application Settings
+   DEBUG=False
+   LOG_LEVEL=INFO
+
+   # Recipe Settings
+   MAX_RECIPES_PER_SEARCH=20
+   MIN_LOCAL_RECIPES=3
+   PRIORITY_SOURCES=indianhealthyrecipes.com,vegrecipesofindia.com,hebbarskitchen.com,archanaskitchen.com
    ```
 
 4. Set up Google Cloud Natural Language API:
@@ -108,16 +84,16 @@ This diagram illustrates the flow of data in the Ingreedy application:
 5. Run the application:
    
    **Windows:**
-   ```
+   ```bash
    python run.py
    ```
    
    **macOS/Linux:**
-   ```
+   ```bash
    python3 run.py
    ```
 
-6. Open your browser and go to `http://localhost:3000`
+6. Open your browser and go to `http://localhost:8001`
 
 ## Usage Examples
 
@@ -125,6 +101,8 @@ This diagram illustrates the flow of data in the Ingreedy application:
 - "I have chicken, broccoli, and rice"
 - "Show me vegetarian recipes with mushrooms"
 - "What can I cook with pasta and tomatoes?"
+- "Find recipes with paneer and spinach"
+- "Show me Indian recipes with rice and dal"
 
 ## System Requirements
 
@@ -135,26 +113,16 @@ This diagram illustrates the flow of data in the Ingreedy application:
    - macOS 10.15 (Catalina) or newer
    - Ubuntu 20.04 or newer (or other Linux distributions with equivalent packages)
 
-2. **Backend Dependencies**:
-   - Python 3.8 or newer
-   - FastAPI 0.68.0 or newer
-   - Uvicorn 0.15.0 or newer
-   - scikit-learn 1.0.0 or newer
-   - Pandas 1.3.0 or newer
-   - Google Cloud Natural Language API 2.11.0 or newer
-   - Requests 2.26.0 or newer
-   - python-dotenv 0.19.0 or newer
+2. **Python Version**: 3.8 or newer
 
-3. **Frontend Dependencies**:
+3. **Dependencies**: See requirements.txt for specific versions
+
+4. **Frontend**:
    - Modern web browser with JavaScript enabled:
      - Google Chrome 90+
      - Mozilla Firefox 88+
      - Microsoft Edge 90+
      - Safari 14+
-
-4. **Network Requirements**:
-   - Internet connection (for API calls to Spoonacular and Google Cloud)
-   - Open port for local development server (default: 3000)
 
 ### Hardware Requirements
 
@@ -170,20 +138,40 @@ This diagram illustrates the flow of data in the Ingreedy application:
    - Storage: 500MB free space
    - Network: High-speed broadband connection
 
-3. **Mobile Support**:
-   - The web interface is responsive and supports mobile devices with a minimum screen width of 320px
-
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgements
 
 - [Spoonacular API](https://spoonacular.com/food-api) for providing recipe data
 - [Google Cloud Natural Language API](https://cloud.google.com/natural-language) for advanced text analysis
-- FastAPI for the efficient API framework
-- scikit-learn for machine learning algorithms
+- [FastAPI](https://fastapi.tiangolo.com/) for the efficient API framework
+- [scikit-learn](https://scikit-learn.org/) for machine learning algorithms
+
+## API Configuration
+
+The application uses the Spoonacular API for recipe search and recommendations. To get started:
+
+1. Sign up for a free account at [Spoonacular](https://spoonacular.com/food-api)
+2. Get your API key from the dashboard
+3. Add the API key to your `.env` file
+
+The free tier of Spoonacular API includes:
+- 150 points per day
+- 10 requests per minute
+- Access to basic recipe search and information
+
+## Support
+
+For support, please open an issue in the GitHub repository or contact the maintainers.

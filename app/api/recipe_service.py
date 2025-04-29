@@ -6,25 +6,20 @@ import pandas as pd
 from typing import List, Dict, Any, Optional
 import requests
 import logging
+from app.config import Config
+
+logger = logging.getLogger(__name__)
 
 class RecipeService:
     """Service to fetch and manage recipe data"""
     
     def __init__(self):
         """Initialize the recipe service"""
-        self.api_key = os.getenv("SPOONACULAR_API_KEY", "")
+        self.api_key = Config.SPOONACULAR_API_KEY
         self.api_base_url = "https://api.spoonacular.com"
         self.recipes_data_path = "app/data/recipes.json"
         self.recipes_df = None
-        # Add more Indian recipe sources
-        self.priority_sources = [
-            "indianhealthyrecipes.com",
-            "vegrecipesofindia.com",
-            "hebbarskitchen.com",
-            "archanaskitchen.com",
-            "cooking.nytimes.com/recipes/indian",
-            "allrecipes.com/recipes/world-cuisine/asian/indian"
-        ]
+        self.priority_sources = Config.PRIORITY_SOURCES
         self._load_recipes()
     
     def _load_recipes(self):
@@ -157,35 +152,50 @@ class RecipeService:
         
         return False
     
-    async def search_recipes(self, query: str) -> List[Dict[str, Any]]:
-        """Search recipes by name or ingredients"""
-        try:
-            # Try local search first
-            if not self.recipes_df.empty:
-                filtered_recipes = self.recipes_df[
-                    self.recipes_df['title'].str.contains(query, case=False, na=False)
-                ]
-                if not filtered_recipes.empty:
-                    recipes = filtered_recipes.to_dict('records')
-                    return self._prioritize_recipes(recipes)
-            
-            # Fallback to API search if API key is available
-            if self.api_key:
-                async with httpx.AsyncClient() as client:
-                    params = {
-                        "apiKey": self.api_key,
-                        "query": query,
-                        "number": 10,
-                    }
-                    response = await client.get(f"{self.api_base_url}/recipes/complexSearch", params=params)
-                    
-                    if response.status_code == 200:
-                        recipes = response.json().get("results", [])
-                        return self._prioritize_recipes(recipes)
-            
+    async def _fetch_from_spoonacular(self, endpoint: str, params: dict) -> List[Dict[str, Any]]:
+        """Helper method to fetch data from Spoonacular API"""
+        if not self.api_key:
+            logger.warning("Spoonacular API key not configured")
             return []
+            
+        try:
+            async with httpx.AsyncClient() as client:
+                params["apiKey"] = self.api_key
+                response = await client.get(f"{self.api_base_url}/{endpoint}", params=params)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    recipes = data.get("results", []) if "results" in data else data
+                    
+                    # Process recipes to extract essential data
+                    processed_recipes = []
+                    for recipe in recipes:
+                        processed_recipe = {
+                            "id": recipe.get("id"),
+                            "title": recipe.get("title"),
+                            "image": recipe.get("image"),
+                            "readyInMinutes": recipe.get("readyInMinutes"),
+                            "servings": recipe.get("servings"),
+                            "sourceUrl": recipe.get("sourceUrl"),
+                            "summary": recipe.get("summary"),
+                            "ingredients": [
+                                {
+                                    "name": ingredient.get("name", ""),
+                                    "amount": ingredient.get("amount", 0),
+                                    "unit": ingredient.get("unit", "")
+                                }
+                                for ingredient in recipe.get("extendedIngredients", [])
+                            ],
+                            "instructions": recipe.get("instructions", "")
+                        }
+                        processed_recipes.append(processed_recipe)
+                    
+                    return processed_recipes
+                else:
+                    logger.error(f"Spoonacular API error: {response.status_code} - {response.text}")
+                    return []
         except Exception as e:
-            print(f"Error searching recipes: {e}")
+            logger.error(f"Error fetching from Spoonacular: {e}")
             return []
     
     async def get_recipes_by_ingredients(self, ingredients: List[str], operators: List[str] = None) -> List[Dict[str, Any]]:
@@ -194,63 +204,144 @@ class RecipeService:
             # Convert input ingredients to lowercase for case-insensitive matching
             input_ingredients_lower = [ing.lower() for ing in ingredients]
             
+            # Expand ingredients with their variations
+            expanded_ingredients = set(input_ingredients_lower)
+            for ingredient in input_ingredients_lower:
+                if ingredient in Config.INGREDIENT_VARIATIONS:
+                    expanded_ingredients.update(Config.INGREDIENT_VARIATIONS[ingredient])
+            
             # First try to find recipes in local data
+            local_recipes = []
             if not self.recipes_df.empty:
                 def ingredient_match(recipe_ingredients):
                     matches = 0
                     for ingredient in recipe_ingredients:
                         ingredient_name = ingredient['name'].lower()
-                        # Check for partial matches
-                        for input_ing in input_ingredients_lower:
-                            if input_ing in ingredient_name or ingredient_name in input_ing:
+                        # Check for matches with expanded ingredients
+                        for input_ing in expanded_ingredients:
+                            # Check for exact match
+                            if input_ing == ingredient_name:
                                 matches += 1
                                 break
-                    # Return true if at least half of the ingredients match
-                    return matches >= len(input_ingredients_lower) / 2
+                            # Check for partial match (e.g., "paneer" in "paneer tikka")
+                            elif input_ing in ingredient_name or ingredient_name in input_ing:
+                                matches += 1
+                                break
+                    return matches > 0
                 
                 filtered_recipes = self.recipes_df[
                     self.recipes_df['ingredients'].apply(ingredient_match)
                 ]
                 
                 if not filtered_recipes.empty:
-                    recipes = filtered_recipes.to_dict('records')
-                    # Sort by priority and number of matching ingredients
-                    return sorted(recipes, 
-                        key=lambda x: (
-                            not self._is_priority_source(x.get('sourceUrl', '')),
-                            not self._is_indian_recipe(x),
-                            sum(1 for ing in input_ingredients_lower 
-                                if any(ing in i['name'].lower() or i['name'].lower() in ing 
-                                    for i in x['ingredients']))
-                        )
-                    )
+                    local_recipes = filtered_recipes.to_dict('records')
             
-            # Fallback to API search if API key is available
+            # Always fetch from Spoonacular if API key is available
+            spoonacular_recipes = []
             if self.api_key:
-                async with httpx.AsyncClient() as client:
-                    params = {
-                        "apiKey": self.api_key,
-                        "ingredients": ",".join(ingredients),
-                        "number": 10,
-                        "ranking": 2  # Maximize used ingredients
-                    }
-                    response = await client.get(f"{self.api_base_url}/recipes/findByIngredients", params=params)
+                try:
+                    # Try with original ingredients first
+                    spoonacular_recipes = await self._fetch_from_spoonacular(
+                        "recipes/findByIngredients",
+                        {
+                            "ingredients": ",".join(ingredients),
+                            "number": Config.MAX_RECIPES_PER_SEARCH,
+                            "ranking": 2,  # Maximize used ingredients
+                            "ignorePantry": True
+                        }
+                    )
                     
-                    if response.status_code == 200:
-                        recipes = response.json()
-                        return sorted(recipes, 
-                            key=lambda x: (
-                                not self._is_priority_source(x.get('sourceUrl', '')),
-                                not self._is_indian_recipe(x),
-                                sum(1 for ing in input_ingredients_lower 
-                                    if any(ing in i['name'].lower() or i['name'].lower() in ing 
-                                        for i in x['ingredients']))
-                            )
-                        )
+                    # If no results, try with variations
+                    if not spoonacular_recipes:
+                        for ingredient in ingredients:
+                            if ingredient.lower() in Config.INGREDIENT_VARIATIONS:
+                                for variation in Config.INGREDIENT_VARIATIONS[ingredient.lower()]:
+                                    variation_recipes = await self._fetch_from_spoonacular(
+                                        "recipes/findByIngredients",
+                                        {
+                                            "ingredients": variation,
+                                            "number": Config.MAX_RECIPES_PER_SEARCH,
+                                            "ranking": 2,
+                                            "ignorePantry": True
+                                        }
+                                    )
+                                    spoonacular_recipes.extend(variation_recipes)
+                except Exception as e:
+                    logger.error(f"Error fetching from Spoonacular: {e}")
             
-            return []
+            # Combine local and Spoonacular recipes
+            all_recipes = local_recipes + spoonacular_recipes
+            
+            # Remove duplicates based on title and source URL
+            seen = set()
+            unique_recipes = []
+            for recipe in all_recipes:
+                # Create a unique identifier for the recipe
+                recipe_id = f"{recipe.get('title', '').lower()}_{recipe.get('sourceUrl', '')}"
+                if recipe_id not in seen:
+                    seen.add(recipe_id)
+                    unique_recipes.append(recipe)
+            
+            # Filter out recipes that don't contain the main ingredient
+            filtered_recipes = []
+            for recipe in unique_recipes:
+                recipe_ingredients = [ing['name'].lower() for ing in recipe.get('ingredients', [])]
+                # Check if any of the main ingredients (not variations) are in the recipe
+                if any(ing in ' '.join(recipe_ingredients) for ing in input_ingredients_lower):
+                    filtered_recipes.append(recipe)
+            
+            # Sort recipes by:
+            # 1. Priority source
+            # 2. Number of matching ingredients
+            # 3. Whether it's an Indian recipe
+            return sorted(filtered_recipes, 
+                key=lambda x: (
+                    not self._is_priority_source(x.get('sourceUrl', '')),
+                    -sum(1 for ing in expanded_ingredients 
+                        if any(ing in i['name'].lower() or 
+                              i['name'].lower() in ing 
+                            for i in x['ingredients'])),
+                    not self._is_indian_recipe(x)
+                )
+            )
+            
         except Exception as e:
-            print(f"Error finding recipes by ingredients: {e}")
+            logger.error(f"Error finding recipes by ingredients: {e}")
+            return []
+    
+    async def search_recipes(self, query: str) -> List[Dict[str, Any]]:
+        """Search recipes by name or ingredients"""
+        try:
+            # Try local search first
+            local_recipes = []
+            if not self.recipes_df.empty:
+                filtered_recipes = self.recipes_df[
+                    self.recipes_df['title'].str.contains(query, case=False, na=False)
+                ]
+                if not filtered_recipes.empty:
+                    local_recipes = filtered_recipes.to_dict('records')
+            
+            # If we have less than MIN_LOCAL_RECIPES locally, fetch from Spoonacular
+            if len(local_recipes) < Config.MIN_LOCAL_RECIPES and self.api_key:
+                spoonacular_recipes = await self._fetch_from_spoonacular(
+                    "recipes/complexSearch",
+                    {
+                        "query": query,
+                        "number": Config.MAX_RECIPES_PER_SEARCH,
+                        "addRecipeInformation": True,
+                        "fillIngredients": True
+                    }
+                )
+                
+                # Combine local and Spoonacular recipes
+                all_recipes = local_recipes + spoonacular_recipes
+            else:
+                all_recipes = local_recipes
+            
+            return self._prioritize_recipes(all_recipes)
+            
+        except Exception as e:
+            logger.error(f"Error searching recipes: {e}")
             return []
     
     async def get_recipe_by_id(self, recipe_id: int) -> Optional[Dict[str, Any]]:

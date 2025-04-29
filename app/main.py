@@ -115,230 +115,76 @@ try:
                     
                     logger.info(f"Detected ingredient query: {ingredient_text}")
                     ingredient_extract_result = recipe_recommender.extract_ingredients(ingredient_text)
-                    break  # Found a match, no need to check other patterns
+                    break
             
-            # If no specific pattern matched, try general ingredient extraction
-            if not is_ingredient_query:
-                # Check if this is general conversation
-                if recipe_recommender.is_general_conversation(message):
-                    conversational_response = await recipe_recommender.get_conversational_response(message)
-                    
-                    # Sometimes suggest a random recipe with conversational responses
-                    if random.random() < 0.25:  # 25% chance
-                        random_recipes = await recipe_service.get_random_recipes(1)
-                        if random_recipes:
-                            recipe = random_recipes[0]
-                            return templates.TemplateResponse(
-                                "chat_response.html", 
-                                {
-                                    "request": request,
-                                    "response": f"{conversational_response}\n\nBy the way, have you ever tried {recipe['title']}? It's delicious!",
-                                    "recipes": [recipe]
-                                }
-                            )
-                    
-                    return templates.TemplateResponse(
-                        "chat_response.html", 
-                        {
-                            "request": request,
-                            "response": conversational_response,
-                            "recipes": []
-                        }
-                    )
-                    
-                # Check if the user is asking for a specific recipe
-                is_recipe_request, recipe_name = recipe_recommender.is_asking_for_recipe(message)
-                
-                if is_recipe_request and recipe_name:
-                    logger.info(f"User is requesting recipe for: {recipe_name}")
-                    recipes = await recipe_recommender.find_recipe_by_name(recipe_name)
-                    
-                    if recipes:
-                        # Format a nice response with the recipe details
-                        recipe = recipes[0]  # Get the top match
-                        formatted_response = format_recipe_response(recipe)
-                        return templates.TemplateResponse(
-                            "chat_response.html", 
-                            {
-                                "request": request,
-                                "response": formatted_response,
-                                "recipes": recipes[:5]
-                            }
-                        )
-                    else:
-                        # No recipes found for the specific request
-                        random_recipes = await recipe_service.get_random_recipes(3)
-                        return templates.TemplateResponse(
-                            "chat_response.html", 
-                            {
-                                "request": request,
-                                "response": f"I couldn't find a recipe for '{recipe_name}'. Would you like to try one of these popular recipes instead?",
-                                "recipes": random_recipes
-                            }
-                        )
-                
-                # Extract ingredients from the message
-                ingredient_extract_result = recipe_recommender.extract_ingredients(message)
-            
-            # Handle ingredient extraction result - it's now a tuple of (ingredients, operators)
-            ingredients, operators = ingredient_extract_result
-            
-            # Log the extracted ingredients and operators
-            logger.info(f"Extracted ingredients: {ingredients}")
-            if operators:
-                logger.info(f"Detected operators: {operators}")
-            
-            if not ingredients:
-                # No ingredients found, provide a helpful message and some random recipes
-                random_recipes = await recipe_service.get_random_recipes(3)
-                return templates.TemplateResponse(
-                    "chat_response.html", 
-                    {
-                        "request": request,
-                        "response": "I couldn't identify any specific ingredients in your message. Try mentioning ingredients like 'chicken', 'pasta', or 'tomatoes'. In the meantime, here are some popular recipes you might enjoy!",
-                        "recipes": random_recipes
+            if is_ingredient_query and ingredient_extract_result:
+                ingredients, operators = ingredient_extract_result
+                if not ingredients:
+                    return {
+                        "response": "I couldn't identify any specific ingredients in your message. Please try again with ingredients like 'paneer', 'rice', 'chicken', etc.",
+                        "recipes": await recipe_service.get_random_recipes(3)
                     }
-                )
                 
-            # Find recipes matching the ingredients and operators
-            recipes = await recipe_recommender.find_recipes_by_ingredients((ingredients, operators))
-            
-            if not recipes:
-                random_recipes = await recipe_service.get_random_recipes(3)
-                return templates.TemplateResponse(
-                    "chat_response.html", 
-                    {
-                        "request": request,
-                        "response": f"I couldn't find recipes with exactly those ingredients ({', '.join(ingredients)}). Here are some other popular recipes you might enjoy!",
-                        "recipes": random_recipes
+                # Get recipes matching the ingredients
+                recipes = await recipe_service.get_recipes_by_ingredients(ingredients, operators)
+                
+                if not recipes:
+                    return {
+                        "response": f"I couldn't find any recipes with {', '.join(ingredients)}. Here are some random recipes you might like:",
+                        "recipes": await recipe_service.get_random_recipes(3)
                     }
-                )
                 
-            # Format a nice response with the matched recipes
-            ingredients_list = ", ".join(ingredients)
-            
-            # Include operator information in the response for clarity
-            if operators and len(operators) > 0:
-                operator_descriptions = []
-                for i, op in enumerate(operators):
-                    if i < len(ingredients) - 1:
-                        operator_descriptions.append(f"{ingredients[i]} {op.upper()} {ingredients[i+1]}")
+                # Format the response
+                ingredient_list = ", ".join(ingredients)
+                response = f"I found some great recipes that use {ingredient_list}! Here are the top matches:"
                 
-                if operator_descriptions:
-                    response_message = f"Great! I found {len(recipes)} recipes matching your criteria ({', '.join(operator_descriptions)}). Here's the best match:"
-                else:
-                    response_message = f"Great! I found {len(recipes)} recipes using {ingredients_list}. Here's the best match:"
-            else:
-                response_message = f"Great! I found {len(recipes)} recipes using {ingredients_list}. Here's the best match:"
-            
-            if len(recipes) > 0:
-                # Add the top recipe details to the message
-                response_message = f"{response_message}\n\n{format_recipe_response(recipes[0])}"
+                # Limit to top 5 recipes and format them
+                top_recipes = recipes[:5]
+                formatted_recipes = []
+                for recipe in top_recipes:
+                    # Get the main ingredients used in the recipe
+                    recipe_ingredients = [ing['name'] for ing in recipe.get('ingredients', [])]
+                    matching_ingredients = [ing for ing in ingredients if any(ing.lower() in ing_name.lower() for ing_name in recipe_ingredients)]
+                    
+                    formatted_recipe = {
+                        "title": recipe.get('title', 'Untitled Recipe'),
+                        "image": recipe.get('image', ''),
+                        "sourceUrl": recipe.get('sourceUrl', ''),
+                        "readyInMinutes": recipe.get('readyInMinutes', 0),
+                        "servings": recipe.get('servings', 0),
+                        "matchingIngredients": matching_ingredients,
+                        "summary": recipe.get('summary', '')
+                    }
+                    formatted_recipes.append(formatted_recipe)
                 
-            return templates.TemplateResponse(
-                "chat_response.html", 
-                {
-                    "request": request,
-                    "response": response_message,
-                    "recipes": recipes[:5]
+                return {
+                    "response": response,
+                    "recipes": formatted_recipes
                 }
-            )
+            
+            # Handle other types of queries...
+            return {
+                "response": "I'm not sure how to help with that. Try asking about recipes with specific ingredients!",
+                "recipes": await recipe_service.get_random_recipes(3)
+            }
             
         except Exception as e:
-            logger.error(f"Error processing chat: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error processing request: {str(e)}")
+            logger.error(f"Error in chat endpoint: {e}")
+            return {
+                "response": "Sorry, I encountered an error. Please try again.",
+                "recipes": []
+            }
 
     @app.post("/chat/simple")
     async def chat_simple(request: Request, chat_request: ChatRequest):
-        """
-        Process a chat message and return simple text response instead of HTML
-        """
+        """Simple chat endpoint that uses the recipe recommender"""
         try:
-            # Log the incoming message
-            logger.info(f"Received chat message: {chat_request.message}")
+            # Initialize services
+            recipe_service = RecipeService()
+            recipe_recommender = RecipeRecommender(recipe_service)
             
-            message = chat_request.message.strip()
-            
-            # Check for ingredient-based queries first (what can I make with X?)
-            ingredient_patterns = [
-                r"(?i)what\s+can\s+i\s+make\s+with\s+(.+)",
-                r"(?i)what\s+can\s+i\s+cook\s+with\s+(.+)",
-                r"(?i)recipes\s+(using|with|containing)\s+(.+)",
-                r"(?i)dishes?\s+with\s+(.+)",
-                r"(?i)i\s+have\s+(.+)",
-                r"(?i)cook\s+with\s+(.+)",
-            ]
-            
-            is_ingredient_query = False
-            ingredient_extract_result = None
-            
-            for pattern in ingredient_patterns:
-                match = re.search(pattern, message)
-                if match:
-                    is_ingredient_query = True
-                    if "using|with|containing" in pattern:
-                        ingredient_text = match.group(2)
-                    else:
-                        ingredient_text = match.group(1)
-                    
-                    logger.info(f"Detected ingredient query: {ingredient_text}")
-                    ingredient_extract_result = recipe_recommender.extract_ingredients(ingredient_text)
-                    break  # Found a match, no need to check other patterns
-            
-            # If no specific pattern matched, try general ingredient extraction
-            if not is_ingredient_query:
-                # Check if this is general conversation
-                if recipe_recommender.is_general_conversation(message):
-                    conversational_response = await recipe_recommender.get_conversational_response(message)
-                    
-                    # Sometimes suggest a random recipe with conversational responses
-                    if random.random() < 0.25:  # 25% chance
-                        random_recipes = await recipe_service.get_random_recipes(1)
-                        if random_recipes:
-                            recipe = random_recipes[0]
-                            return JSONResponse({
-                                "message": f"{conversational_response}\n\nBy the way, have you ever tried {recipe['title']}? It's delicious!",
-                                "recipes": [recipe]
-                            })
-                    
-                    return JSONResponse({
-                        "message": conversational_response,
-                        "recipes": []
-                    })
-                
-                # Check if the user is asking for a specific recipe
-                is_recipe_request, recipe_name = recipe_recommender.is_asking_for_recipe(message)
-                
-                if is_recipe_request and recipe_name:
-                    logger.info(f"User is requesting recipe for: {recipe_name}")
-                    recipes = await recipe_recommender.find_recipe_by_name(recipe_name)
-                    
-                    if recipes:
-                        # Get the top match
-                        recipe = recipes[0]
-                        response_message = f"I found a recipe for {recipe['title']}! It takes about {recipe.get('readyInMinutes', '?')} minutes to prepare and serves {recipe.get('servings', '?')}."
-                        return JSONResponse({
-                            "message": response_message,
-                            "recipes": recipes[:5]
-                        })
-                    else:
-                        # No recipes found for the specific request
-                        random_recipes = await recipe_service.get_random_recipes(3)
-                        return JSONResponse({
-                            "message": f"I couldn't find a recipe for '{recipe_name}'. Would you like to try one of these popular recipes instead?",
-                            "recipes": random_recipes
-                        })
-                
-                # Extract ingredients from the message
-                ingredient_extract_result = recipe_recommender.extract_ingredients(message)
-            
-            # Handle ingredient extraction result - it's now a tuple of (ingredients, operators)
-            ingredients, operators = ingredient_extract_result
-            
-            # Log the extracted ingredients and operators
-            logger.info(f"Extracted ingredients: {ingredients}")
-            if operators:
-                logger.info(f"Detected operators: {operators}")
+            # Extract ingredients and operators from the message
+            ingredients, operators = recipe_recommender.extract_ingredients(chat_request.message)
             
             if not ingredients:
                 # No ingredients found, provide a helpful message and some random recipes
@@ -374,29 +220,19 @@ try:
             
             # Format a nice response with the matched recipes
             ingredients_list = ", ".join(ingredients)
-            
-            # Include operator information in the response for clarity
-            if operators and len(operators) > 0:
-                operator_descriptions = []
-                for i, op in enumerate(operators):
-                    if i < len(ingredients) - 1:
-                        operator_descriptions.append(f"{ingredients[i]} {op.upper()} {ingredients[i+1]}")
-                
-                if operator_descriptions:
-                    response_message = f"Great! I found {len(recipes)} recipes matching your criteria ({', '.join(operator_descriptions)}). Here's the best match: {recipes[0]['title']}. It takes about {recipes[0].get('readyInMinutes', '?')} minutes to prepare and serves {recipes[0].get('servings', '?')}."
-                else:
-                    response_message = f"Great! I found {len(recipes)} recipes using {ingredients_list}. Here's the best match: {recipes[0]['title']}. It takes about {recipes[0].get('readyInMinutes', '?')} minutes to prepare and serves {recipes[0].get('servings', '?')}."
-            else:
-                response_message = f"Great! I found {len(recipes)} recipes using {ingredients_list}. Here's the best match: {recipes[0]['title']}. It takes about {recipes[0].get('readyInMinutes', '?')} minutes to prepare and serves {recipes[0].get('servings', '?')}."
+            message = f"I found some great recipes that use {ingredients_list}! Here are the top matches:"
             
             return JSONResponse({
-                "message": response_message,
-                "recipes": recipes[:5]
+                "message": message,
+                "recipes": recipes[:5]  # Return top 5 matches
             })
             
         except Exception as e:
-            logger.error(f"Error processing chat: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error processing request: {str(e)}")
+            logger.error(f"Error in chat endpoint: {str(e)}")
+            return JSONResponse(
+                status_code=500,
+                content={"error": "An error occurred while processing your request"}
+            )
 
     def format_recipe_response(recipe: Dict[str, Any]) -> str:
         """Format a recipe into a nice response message with HTML formatting"""
