@@ -38,6 +38,12 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         });
         
+        // View all recipes button
+        const viewAllBtn = document.getElementById('view-all-recipes-btn');
+        if (viewAllBtn) {
+            viewAllBtn.addEventListener('click', loadAllRecipes);
+        }
+        
         // View recipe details from main list
         document.addEventListener('click', function(e) {
             if (e.target.classList.contains('view-recipe-btn') || 
@@ -54,14 +60,6 @@ document.addEventListener('DOMContentLoaded', function() {
         closeDetailBtn.addEventListener('click', function() {
             recipeDetail.style.display = 'none';
         });
-        
-        // Add event listener for the view all recipes button
-        const viewAllRecipesBtn = document.getElementById('view-all-recipes-btn');
-        if (viewAllRecipesBtn) {
-            viewAllRecipesBtn.addEventListener('click', function() {
-                loadAllRecipes();
-            });
-        }
         
         // Add event listener for the back home button
         const backHomeBtn = document.getElementById('back-home-btn');
@@ -656,4 +654,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 '<div class="error"><p>Error loading recipe details. Please try again later.</p></div>';
         }
     }
+
+    // Remove view all button event listener
+    document.getElementById('view-all-recipes-btn')?.removeEventListener('click', () => {
+        window.location.href = '/recipes';
+    });
 }); 

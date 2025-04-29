@@ -1,37 +1,92 @@
-import os
 import uvicorn
+import logging
+import sys
+import os
+import socket
 import webbrowser
-import threading
 import time
-from dotenv import load_dotenv
+import threading
 
-# Load environment variables
-load_dotenv(dotenv_path=".env")
+# Set up logging with more detail
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout
+)
+logger = logging.getLogger(__name__)
 
-# Check for required environment variables
-if not os.getenv("SPOONACULAR_API_KEY"):
-    print("WARNING: SPOONACULAR_API_KEY is not set in your .env file.")
-    print("You will need an API key from https://spoonacular.com/food-api to use external recipe data.")
-    print("The application will still run with limited functionality using local data only.")
-    print("Create a .env file with SPOONACULAR_API_KEY=your_api_key to enable full functionality.")
-    print()
+# Add file handler for persistent logging
+try:
+    os.makedirs('logs', exist_ok=True)
+    file_handler = logging.FileHandler('logs/app.log')
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    logger.addHandler(file_handler)
+except Exception as e:
+    logger.warning(f"Could not set up file logging: {e}")
 
-def open_browser(port):
-    """Open browser after a short delay to ensure server is up"""
-    time.sleep(2)
-    webbrowser.open(f"http://localhost:{port}")
-    print(f"Browser opened to http://localhost:{port}")
+def is_port_in_use(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(('127.0.0.1', port))
+            return False
+        except socket.error:
+            return True
 
-# Run the application
+def find_available_port(start_port: int = 8000, max_attempts: int = 10) -> int:
+    port = start_port
+    while port < start_port + max_attempts:
+        if not is_port_in_use(port):
+            return port
+        port += 1
+    raise RuntimeError(f"Could not find an available port after {max_attempts} attempts")
+
+def open_browser(port: int):
+    """Open the browser after a short delay to allow the server to start"""
+    time.sleep(2)  # Wait for server to start
+    url = f"http://127.0.0.1:{port}"
+    logger.info(f"Opening browser at {url}")
+    webbrowser.open(url)
+
 if __name__ == "__main__":
-    # Get port from environment or use default
-    port = int(os.getenv("PORT", 8000))
-    
-    # Start a thread to open the browser after server starts
-    threading.Thread(target=open_browser, args=(port,), daemon=True).start()
-    
-    print(f"Starting Ingreedy Recipe Chatbot...")
-    print(f"Opening your browser to http://localhost:{port} in a moment...")
-    
-    # Start the server
-    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=True) 
+    try:
+        logger.info("Starting Ingreedy application...")
+        
+        # Check if required directories exist
+        required_dirs = [
+            'app/static',
+            'app/templates',
+            'app/data'
+        ]
+        for dir_path in required_dirs:
+            if not os.path.exists(dir_path):
+                logger.error(f"Required directory not found: {dir_path}")
+                sys.exit(1)
+        
+        # Find an available port
+        try:
+            port = find_available_port()
+            logger.info(f"Using port {port}")
+        except Exception as e:
+            logger.error(f"Could not find available port: {e}")
+            sys.exit(1)
+        
+        # Start browser in a separate thread
+        browser_thread = threading.Thread(target=open_browser, args=(port,))
+        browser_thread.daemon = True
+        browser_thread.start()
+        
+        # Run the application
+        uvicorn.run(
+            "app.main:app",
+            host="127.0.0.1",
+            port=port,
+            reload=True,
+            log_level="debug",
+            log_config=None  # Disable uvicorn's logging config to keep ours
+        )
+    except KeyboardInterrupt:
+        logger.info("Shutting down application...")
+    except Exception as e:
+        logger.error(f"Failed to start application: {str(e)}", exc_info=True)
+        raise 

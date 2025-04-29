@@ -24,9 +24,6 @@
                 <h1>Ingreedy</h1>
             </div>
             <p class="tagline">Your AI-powered recipe assistant</p>
-            <button id="view-all-recipes-btn" class="view-all-recipes-btn">
-                <i class="fas fa-book-open"></i> View All Recipes
-            </button>
         </header>
 
         <div class="main-content">
@@ -38,6 +35,9 @@
                     </button>
                     <input type="text" id="recipe-search" placeholder="Search recipes..." class="search-input">
                     <button id="search-btn" class="search-btn"><i class="fas fa-search"></i></button>
+                    <button id="view-all-recipes-btn" class="view-all-btn">
+                        <i class="fas fa-list"></i> View All Recipes
+                    </button>
                 </div>
                 <div class="recipes-container" id="recipes-list">
                     {% for recipe in recipes %}

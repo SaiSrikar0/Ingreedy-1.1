@@ -10,6 +10,7 @@ import logging
 import random
 from collections import Counter
 from fuzzywuzzy import fuzz
+from sklearn.metrics.pairwise import cosine_similarity
 
 # Download NLTK resources
 try:
@@ -46,6 +47,7 @@ except Exception as e:
 
 # Local imports
 from app.api.recipe_service import RecipeService
+from app.ml.google_nlp_service import GoogleNLPService
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +56,7 @@ class RecipeRecommender:
     Recipe recommendation system using ML algorithms:
     - K-means clustering to find recipes with exact/nearest ingredients
     - Hierarchical clustering as fallback when K-means fails
+    - Google Cloud Natural Language API for ingredient extraction
     """
     
     def __init__(self, recipe_service: RecipeService):
@@ -63,24 +66,48 @@ class RecipeRecommender:
         self.ingredient_vectorizer = None
         self.vectors = None
         self.recipe_data = None
-        self.common_food_ingredients = [
-            'salt', 'pepper', 'olive oil', 'garlic', 'onion', 'butter', 'sugar',
-            'flour', 'egg', 'milk', 'water', 'chicken', 'beef', 'pork', 'tomato',
-            'potato', 'carrot', 'celery', 'rice', 'pasta', 'bread', 'cheese', 
-            'lemon', 'lime', 'vinegar', 'oil', 'basil', 'oregano', 'parsley',
-            'thyme', 'cilantro', 'cumin', 'paprika', 'cinnamon', 'vanilla',
-            'mushroom', 'bell pepper', 'broccoli', 'spinach', 'corn', 'beans',
-            'avocado', 'bacon', 'sausage', 'shrimp', 'salmon', 'tuna', 'cream',
-            'yogurt', 'sour cream', 'mayonnaise', 'mustard', 'ketchup', 'soy sauce',
-            'wine', 'stock', 'broth', 'honey', 'maple syrup', 'chocolate', 'nuts',
-            'lettuce', 'cabbage', 'cucumber', 'zucchini', 'eggplant', 'ginger',
-            'garlic powder', 'onion powder', 'baking powder', 'baking soda',
-            'yeast', 'noodles', 'apple', 'banana', 'orange', 'berries', 'grapes',
-            'eggs', 'potatoes'  # Added common singular forms
-        ]
+        
+        # Try to initialize Google NLP service, fall back to None if not available
+        try:
+            self.nlp_service = GoogleNLPService()
+        except Exception as e:
+            logger.warning(f"Google NLP service not available: {e}")
+            self.nlp_service = None
         
         # Common cooking ingredients for better extraction
-        self.common_ingredients = self._load_common_ingredients()
+        self.common_ingredients = {
+            # Indian staples
+            'rice', 'dal', 'urad dal', 'moong dal', 'toor dal', 'chana dal',
+            'wheat flour', 'besan', 'rava', 'semolina', 'poha', 'vermicelli',
+            'idli rava', 'dosa batter', 'curd', 'yogurt', 'ghee', 'oil',
+            
+            # Spices and seasonings
+            'turmeric', 'cumin', 'coriander', 'mustard seeds', 'fenugreek',
+            'asafoetida', 'cardamom', 'cinnamon', 'cloves', 'pepper',
+            'chili powder', 'garam masala', 'sambar powder', 'rasam powder',
+            'curry leaves', 'coriander leaves', 'mint leaves',
+            
+            # Vegetables
+            'potato', 'onion', 'tomato', 'carrot', 'beans', 'brinjal',
+            'ladies finger', 'cabbage', 'cauliflower', 'peas', 'ginger',
+            'garlic', 'green chili', 'curry leaves',
+            
+            # Lentils and pulses
+            'chana', 'moong', 'masoor', 'urad', 'toor', 'rajma',
+            
+            # Dairy
+            'milk', 'curd', 'yogurt', 'paneer', 'ghee', 'butter',
+            
+            # Nuts and dry fruits
+            'cashew', 'almond', 'raisin', 'peanut', 'coconut',
+            
+            # Common ingredients
+            'salt', 'sugar', 'jaggery', 'tamarind', 'lemon', 'water',
+            
+            # Western ingredients (for compatibility)
+            'eggs', 'bread', 'milk', 'butter', 'flour', 'sugar', 'salt',
+            'chicken', 'beef', 'pork', 'fish', 'pasta', 'cheese'
+        }
         
         # Common recipe request phrases
         self.recipe_request_phrases = [
@@ -90,7 +117,11 @@ class RecipeRecommender:
             "would like to cook", "looking for recipe", "looking for a recipe",
             "want a recipe", "want recipe", "need a recipe", "need recipe",
             "show me recipe", "show me a recipe", "cook with", "i have",
-            "recipes with", "recipes using", "make with", "make using"
+            "recipes with", "recipes using", "make with", "make using",
+            # Indian specific phrases
+            "how to make", "how to prepare", "how to cook", "recipe for",
+            "dish with", "curry with", "sabzi with", "dal with", "rice with",
+            "roti with", "paratha with", "dosa with", "idli with", "pongal with"
         ]
         
         # Create patterns for recipe requests
@@ -104,41 +135,7 @@ class RecipeRecommender:
             # In a real app, this would read from a curated data file
             # For now, we'll use a simplified list
             return [
-                "chicken", "beef", "pork", "lamb", "fish", "shrimp", "tofu",
-                "rice", "pasta", "noodles", "potatoes", "bread", "flour",
-                "tomatoes", "onions", "garlic", "carrots", "peppers", "spinach",
-                "broccoli", "cheese", "cream", "milk", "yogurt", "butter",
-                "eggs", "oil", "vinegar", "soy sauce", "sugar", "salt", "pepper",
-                "mushrooms", "corn", "beans", "lentils", "chickpeas", "herbs",
-                "basil", "cilantro", "parsley", "thyme", "rosemary", "oregano",
-                "cumin", "paprika", "cinnamon", "lemon", "lime", "orange",
-                "apples", "berries", "chocolate", "vanilla", "honey", "nuts",
-                "almonds", "peanuts", "walnuts", "bacon", "sausage", "quinoa",
-                "avocado", "cucumber", "zucchini", "eggplant", "cauliflower",
-                "cabbage", "kale", "celery", "coriander", "curry", "chili",
-                "mustard", "olives", "peas", "ginger", "asparagus", "coconut",
-                "cream cheese", "sour cream", "mozzarella", "cheddar", "parmesan",
-                "feta", "goat cheese", "lettuce", "arugula", "fennel", "beets",
-                "sweet potatoes", "pomegranate", "mango", "pineapple", "banana",
-                "peach", "pear", "plum", "figs", "dates", "raisins", "cranberries",
-                "blueberries", "strawberries", "raspberries", "blackberries",
-                "paneer", "ghee", "turmeric", "cardamom", "cloves", "cinnamon",
-                "star anise", "fennel seeds", "mustard seeds", "mint", "dill",
-                "capers", "anchovies", "tuna", "salmon", "cod", "tilapia",
-                "turkey", "duck", "goose", "quail", "venison", "bison", "veal",
-                "ham", "prosciutto", "salami", "pepperoni", "chorizo", "soy",
-                "tempeh", "seitan", "lentils", "black beans", "kidney beans",
-                "pinto beans", "chickpeas", "split peas", "barley", "oats",
-                "bulgur", "farro", "couscous", "polenta", "ketchup", "mayonnaise",
-                "relish", "jam", "jelly", "maple syrup", "pumpkin", "squash",
-                "zest", "greens", "chard", "endive", "brie", "camembert",
-                "blue cheese", "wheat", "baking soda", "baking powder", "yeast",
-                "cream of tartar", "cocoa", "molasses", "caramel", "cream",
-                "vanilla extract", "almond extract", "sprinkles", "food coloring",
-                "icing", "frosting", "pudding", "gelatin", "jam", "syrup",
-                "custard", "paste", "sauce", "broth", "stock", "puff pastry",
-                "phyllo dough", "tortillas", "pita", "naan", "focaccia",
-                "sourdough", "rye", "white bread", "whole wheat", "cereal"
+                "chicken", "beef", "rice", "pasta", "tomatoes", "onions", "garlic"
             ]
         except Exception as e:
             logger.error(f"Error loading ingredients: {e}")
@@ -146,329 +143,88 @@ class RecipeRecommender:
     
     def extract_ingredients(self, message: str) -> tuple:
         """
-        Extract ingredient names from user message along with their connecting operators ('and'/'or')
-        
-        Returns:
-            Tuple of (ingredients_list, operators_list)
+        Extract ingredient names from user message using Google Cloud Natural Language API
+        Returns: Tuple of (ingredients_list, operators_list)
         """
         try:
-            # If message is a single word that might be an ingredient, handle it directly
-            message = message.strip().lower()
+            # Only try Google NLP service if it's available
+            if self.nlp_service:
+                ingredients, operators = self.nlp_service.extract_ingredients(message)
+                if ingredients:
+                    return ingredients, operators
             
-            # Add key basic ingredients to common food ingredients if not already present
-            basic_ingredients = ['milk', 'eggs', 'egg', 'butter', 'flour', 'sugar', 'salt', 'pepper', 
-                               'oil', 'cheese', 'bread', 'rice', 'pasta', 'potato', 'potatoes', 
-                               'onion', 'onions', 'garlic', 'tomato', 'tomatoes']
-            
-            for basic in basic_ingredients:
-                if basic not in self.common_food_ingredients:
-                    self.common_food_ingredients.append(basic)
-            
-            # Direct matching for "milk and eggs" or similar common combinations
-            if "milk and eggs" in message or "eggs and milk" in message:
-                return ["milk", "eggs"], ["and"]
-            if "milk and egg" in message or "egg and milk" in message:
-                return ["milk", "eggs"], ["and"]
-            
-            if len(message.split()) == 1 and len(message) > 2:
-                # Single word that might be an ingredient - return it directly
-                single_word = message
-                
-                # Check for plural forms
-                if single_word.endswith('es') and len(single_word) > 4:
-                    singular = single_word[:-2]  # Remove 'es'
-                    if singular in self.common_food_ingredients:
-                        return [singular], []
-                elif single_word.endswith('s') and len(single_word) > 3:
-                    singular = single_word[:-1]  # Remove 's'
-                    if singular in self.common_food_ingredients:
-                        return [singular], []
-                
-                # Check if it's in common ingredients list
-                if single_word in self.common_food_ingredients:
-                    return [single_word], []
-                
-                # Special cases for common ingredients
-                if single_word == 'potato' or single_word == 'potatoes':
-                    return ['potatoes'], []
-                if single_word == 'egg' or single_word == 'eggs':
-                    return ['eggs'], []
-                if single_word == 'tomato' or single_word == 'tomatoes':
-                    return ['tomatoes'], []
-                if single_word == 'onion' or single_word == 'onions':
-                    return ['onions'], []
-                
-                # If it's not a common plural/singular case, still return it as potential ingredient
-                return [single_word], []
-            
-            # Special case for common ingredient combinations
-            if "eggs and potatoes" in message or "potatoes and eggs" in message:
-                return ["eggs", "potatoes"], ["and"]
-            if "eggs and potato" in message or "potato and eggs" in message:
-                return ["eggs", "potatoes"], ["and"]
-            if "egg and potatoes" in message or "potatoes and egg" in message:
-                return ["eggs", "potatoes"], ["and"]
-            if "egg and potato" in message or "potato and egg" in message:
-                return ["eggs", "potatoes"], ["and"]
-                
-            # Detect and process operators
-            # First change "and" and "or" to special tokens to make parsing easier
-            # Preserve original message for final extraction
-            original_message = message
-            
-            # Replace standalone "and" and "or" with special tokens
-            message = re.sub(r'\band\b', ' __AND__ ', message)
-            message = re.sub(r'\bor\b', ' __OR__ ', message)
-            message = re.sub(r',', ' __AND__ ', message)  # Treat commas as "and"
-            
-            # Process the manipulated message to extract ingredients and operators
-            parts = message.split()
-            ingredients = []
-            operators = []
-            current_ingredient = []
-            
-            for part in parts:
-                if part == '__AND__':
-                    # Found an AND operator
-                    if current_ingredient:
-                        # Only add the ingredient if we found something
-                        ingredient_text = ' '.join(current_ingredient)
-                        ingredients.append(ingredient_text)
-                        current_ingredient = []
-                    if len(ingredients) > 0:  # Only add operator if we have an ingredient before it
-                        operators.append('and')
-                elif part == '__OR__':
-                    # Found an OR operator
-                    if current_ingredient:
-                        # Only add the ingredient if we found something
-                        ingredient_text = ' '.join(current_ingredient)
-                        ingredients.append(ingredient_text)
-                        current_ingredient = []
-                    if len(ingredients) > 0:  # Only add operator if we have an ingredient before it
-                        operators.append('or')
-                else:
-                    # Part of an ingredient
-                    current_ingredient.append(part)
-            
-            # Add the last ingredient if there is one
-            if current_ingredient:
-                ingredient_text = ' '.join(current_ingredient)
-                ingredients.append(ingredient_text)
-            
-            # Now validate and normalize the ingredients
-            valid_ingredients = []
-            
-            for potential_ingredient in ingredients:
-                # Check with common ingredients list
-                found = False
-                for known_ingredient in self.common_food_ingredients:
-                    if known_ingredient in potential_ingredient:
-                        valid_ingredients.append(known_ingredient)
-                        found = True
-                        break
-                
-                if not found:
-                    # Apply specific normalization for common ingredients
-                    if 'potato' in potential_ingredient or 'potatoes' in potential_ingredient:
-                        valid_ingredients.append('potatoes')
-                    elif 'egg' in potential_ingredient or 'eggs' in potential_ingredient:
-                        valid_ingredients.append('eggs')
-                    elif 'tomato' in potential_ingredient or 'tomatoes' in potential_ingredient:
-                        valid_ingredients.append('tomatoes')
-                    elif 'onion' in potential_ingredient or 'onions' in potential_ingredient:
-                        valid_ingredients.append('onions')
-                    elif len(potential_ingredient.split()) <= 2:  # Only add short phrases
-                        valid_ingredients.append(potential_ingredient)
-            
-            # Direct check for common ingredients that might have been missed
-            message_lower = original_message.lower()
-            for basic in basic_ingredients:
-                if basic in message_lower and basic not in valid_ingredients:
-                    # Normalize to plural form for eggs
-                    if basic == 'egg':
-                        valid_ingredients.append('eggs')
-                    else:
-                        valid_ingredients.append(basic)
-            
-            # If we successfully extracted ingredients, return them with operators
-            if valid_ingredients:
-                # Make sure we have n-1 operators for n ingredients
-                if len(valid_ingredients) > 1 and len(operators) < len(valid_ingredients) - 1:
-                    # Default to AND for missing operators
-                    operators.extend(['and'] * (len(valid_ingredients) - 1 - len(operators)))
-                
-                # Remove duplicates while preserving order
-                seen = set()
-                unique_ingredients = []
-                unique_operators = []
-                
-                for i, ing in enumerate(valid_ingredients):
-                    if ing not in seen:
-                        seen.add(ing)
-                        unique_ingredients.append(ing)
-                        # Also add the corresponding operator if it exists
-                        if i < len(operators):
-                            unique_operators.append(operators[i])
-                
-                # Ensure we have the right number of operators
-                if len(unique_ingredients) > 1:
-                    unique_operators = unique_operators[:len(unique_ingredients)-1]
-                
-                return unique_ingredients, unique_operators
-            
-            # Fall back to the original ingredient extraction if the above approach didn't work
-            # This will use the more thorough but less operator-aware approach
-            fallback_ingredients = self._extract_ingredients_fallback(original_message)
-            
-            # Default to AND operators
-            fallback_operators = ['and'] * (len(fallback_ingredients) - 1) if len(fallback_ingredients) > 1 else []
-            
-            return fallback_ingredients, fallback_operators
+            # Fall back to basic extraction if Google NLP is not available or fails
+            return self._extract_ingredients_fallback(message)
             
         except Exception as e:
-            # Log the error and return basic extraction as fallback
-            logging.error(f"Error in ingredient extraction: {e}")
-            
-            # Basic fallback extraction - hardcode basic ingredients
-            key_ingredients = []
-            msg_lower = message.lower()
-            
-            # Check for single-word query that might be an ingredient
-            if len(msg_lower.split()) == 1 and len(msg_lower) > 2:
-                return [msg_lower], []  # Return the single word as an ingredient
-            
-            # Check for key ingredients directly in message
-            if 'milk' in msg_lower:
-                key_ingredients.append('milk')
-            if 'egg' in msg_lower or 'eggs' in msg_lower:
-                key_ingredients.append('eggs')
-            if 'chicken' in msg_lower:
-                key_ingredients.append('chicken')
-            if 'broccoli' in msg_lower:
-                key_ingredients.append('broccoli')
-            if 'rice' in msg_lower:
-                key_ingredients.append('rice')
-            if 'potato' in msg_lower or 'potatoes' in msg_lower:
-                key_ingredients.append('potatoes')
-            if 'tomato' in msg_lower or 'tomatoes' in msg_lower:
-                key_ingredients.append('tomatoes')
-            if 'onion' in msg_lower or 'onions' in msg_lower:
-                key_ingredients.append('onions')
-            if 'butter' in msg_lower:
-                key_ingredients.append('butter')
-            if 'garlic' in msg_lower:
-                key_ingredients.append('garlic')
-            if 'cheese' in msg_lower:
-                key_ingredients.append('cheese')
-            if 'pasta' in msg_lower:
-                key_ingredients.append('pasta')
-            
-            # Default to AND operators
-            key_operators = ['and'] * (len(key_ingredients) - 1) if len(key_ingredients) > 1 else []
-            
-            return key_ingredients if key_ingredients else [msg_lower.split()[0]], key_operators
+            logger.error(f"Error in ingredient extraction: {e}")
+            return self._extract_ingredients_fallback(message)
     
-    def _extract_ingredients_fallback(self, message: str) -> List[str]:
-        """Fallback method for ingredient extraction without operator awareness"""
+    def _extract_ingredients_fallback(self, message: str) -> Tuple[List[str], List[str]]:
+        """Fallback method for ingredient extraction without Google NLP"""
         try:
-            # Tokenize message
-            tokens = word_tokenize(message.lower())
-            
-            try:
-                stop_words = set(stopwords.words('english'))
-            except:
-                # Fallback if stopwords fail
-                stop_words = set(['i', 'me', 'my', 'myself', 'we', 'our', 'ours', 'ourselves',
-                                'you', 'your', 'yours', 'yourself', 'yourselves', 'he', 'him',
-                                'his', 'himself', 'she', 'her', 'hers', 'herself', 'it', 'its',
-                                'itself', 'they', 'them', 'their', 'theirs', 'themselves', 'what',
-                                'which', 'who', 'whom', 'this', 'that', 'these', 'those', 'am',
-                                'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has',
-                                'had', 'having', 'do', 'does', 'did', 'doing', 'a', 'an', 'the',
-                                'and', 'but', 'if', 'or', 'because', 'as', 'until', 'while', 'of',
-                                'at', 'by', 'for', 'with', 'about', 'against', 'between', 'into',
-                                'through', 'during', 'before', 'after', 'above', 'below', 'to',
-                                'from', 'up', 'down', 'in', 'out', 'on', 'off', 'over', 'under',
-                                'again', 'further', 'then', 'once', 'here', 'there', 'when',
-                                'where', 'why', 'how', 'all', 'any', 'both', 'each', 'few', 'more',
-                                'most', 'other', 'some', 'such', 'no', 'nor', 'not', 'only', 'own',
-                                'same', 'so', 'than', 'too', 'very', 's', 't', 'can', 'will',
-                                'just', 'don', 'should', 'now', 'd', 'll', 'm', 'o', 're', 've',
-                                'y', 'ain', 'aren', 'couldn', 'didn', 'doesn', 'hadn', 'hasn',
-                                'haven', 'isn', 'ma', 'mightn', 'mustn', 'needn', 'shan', 'shouldn',
-                                'wasn', 'weren', 'won', 'wouldn', 'make', 'using', 'use', 'can', 'want',
-                                'like', 'need', 'got', 'get', 'would', 'could', 'should', 'recipe',
-                                'cook', 'cooking', 'made', 'help', 'please', 'thank', 'thanks',
-                                'hi', 'hello', 'hey', 'how', 'what', 'something', 'anything',
-                                'have', 'has', 'had', 'having', 'do', 'does', 'did', 'doing'])
-            
-            # Filter tokens to find ingredients
+            # Basic ingredient extraction logic
             ingredients = []
+            operators = []
             
-            # Direct extraction of ingredients from message
-            for word in message.lower().split():
-                # Check if word is in common ingredients
-                if word in self.common_food_ingredients:
-                    ingredients.append(word)
+            # Split message into words and clean it
+            message = message.lower().strip()
             
-            # Look for common ingredients in user message
-            for ingredient in self.common_food_ingredients:
-                if ingredient.lower() in message.lower() and ingredient not in ingredients:
-                    ingredients.append(ingredient)
-            
-            # Look for phrases that might be ingredients
-            for i in range(len(tokens)):
-                if tokens[i] not in stop_words:
-                    # Check single words
-                    if tokens[i] in self.common_food_ingredients and tokens[i] not in ingredients:
-                        ingredients.append(tokens[i])
+            # Handle simple ingredient lists with "and" or commas
+            if " and " in message:
+                parts = message.split(" and ")
+                for part in parts:
+                    part = part.strip()
+                    if part in self.common_ingredients:
+                        ingredients.append(part)
+                        if len(ingredients) > 1:
+                            operators.append("and")
+            elif "," in message:
+                parts = message.split(",")
+                for part in parts:
+                    part = part.strip()
+                    if part in self.common_ingredients:
+                        ingredients.append(part)
+                        if len(ingredients) > 1:
+                            operators.append("and")
+            else:
+                # Split message into words
+                words = message.split()
+                
+                # Look for ingredients and operators
+                for i, word in enumerate(words):
+                    # Check for operators
+                    if word in ['and', 'or']:
+                        operators.append(word)
                     
-                    # Check two-word phrases
-                    if i < len(tokens) - 1:
-                        two_word = f"{tokens[i]} {tokens[i+1]}"
-                        if two_word in self.common_food_ingredients and two_word not in ingredients:
+                    # Check for ingredients
+                    if word in self.common_ingredients:
+                        ingredients.append(word)
+                    
+                    # Check for two-word ingredients
+                    if i < len(words) - 1:
+                        two_word = f"{word} {words[i+1]}"
+                        if two_word in self.common_ingredients:
                             ingredients.append(two_word)
-            
-            # Process specific ingredient keywords
-            if 'chicken' in message.lower() and 'chicken' not in ingredients:
-                ingredients.append('chicken')
-            if 'broccoli' in message.lower() and 'broccoli' not in ingredients:
-                ingredients.append('broccoli')
-            if 'rice' in message.lower() and 'rice' not in ingredients:
-                ingredients.append('rice')
-            if 'egg' in message.lower() or 'eggs' in message.lower():
-                if 'egg' not in ingredients and 'eggs' not in ingredients:
-                    ingredients.append('eggs')
-            if 'potato' in message.lower() or 'potatoes' in message.lower():
-                if 'potato' not in ingredients and 'potatoes' not in ingredients:
-                    ingredients.append('potatoes')
-            if 'tomato' in message.lower() or 'tomatoes' in message.lower():
-                if 'tomato' not in ingredients and 'tomatoes' not in ingredients:
-                    ingredients.append('tomatoes')
-            if 'onion' in message.lower() or 'onions' in message.lower():
-                if 'onion' not in ingredients and 'onions' not in ingredients:
-                    ingredients.append('onions')
             
             # Remove duplicates while preserving order
             seen = set()
-            unique_ingredients = [x for x in ingredients if not (x in seen or seen.add(x))]
+            unique_ingredients = []
+            for ingredient in ingredients:
+                if ingredient not in seen:
+                    seen.add(ingredient)
+                    unique_ingredients.append(ingredient)
             
-            # If no ingredients found through normal methods, do a fallback extraction
-            if not unique_ingredients:
-                # Split the message by common delimiters and check each part
-                parts = re.split(r'[,\s+]', message.lower())
-                for part in parts:
-                    clean_part = part.strip()
-                    if clean_part and clean_part not in stop_words and len(clean_part) > 2:
-                        # Check if it's a possible food item (not a very common word)
-                        unique_ingredients.append(clean_part)
+            # Ensure we have n-1 operators for n ingredients
+            if len(unique_ingredients) > 1 and len(operators) < len(unique_ingredients) - 1:
+                # Default to AND for missing operators
+                operators.extend(['and'] * (len(unique_ingredients) - 1 - len(operators)))
             
-            return unique_ingredients
+            return unique_ingredients, operators
             
         except Exception as e:
-            # Log the error and return empty list
-            logging.error(f"Error in fallback ingredient extraction: {e}")
-            return []
+            logger.error(f"Error in fallback ingredient extraction: {e}")
+            return [], []
     
     def _preprocess_recipes(self, recipes: List[Dict[str, Any]]) -> pd.DataFrame:
         """Preprocess recipes for ML algorithms"""
@@ -528,30 +284,19 @@ class RecipeRecommender:
         if recipe_vectors.shape[0] == 0:
             return [], False
         
-        # Concatenate user vector with recipe vectors
-        all_vectors = np.vstack([recipe_vectors.toarray(), user_vector.toarray()])
+        # Calculate cosine similarity between user vector and recipe vectors
+        similarities = cosine_similarity(user_vector, recipe_vectors)[0]
         
-        # Apply K-means
-        num_clusters = min(k, all_vectors.shape[0])
-        kmeans = KMeans(n_clusters=num_clusters, random_state=42)
-        clusters = kmeans.fit_predict(all_vectors)
-        
-        # Find the cluster containing the user query
-        user_cluster = clusters[-1]
-        
-        # Get recipes in the same cluster
-        cluster_indices = np.where(clusters[:-1] == user_cluster)[0]
-        
-        if len(cluster_indices) == 0:
-            return [], False
+        # Get top k most similar recipes
+        top_k_indices = np.argsort(similarities)[-k:][::-1]
         
         # Get the corresponding recipes
-        matching_recipes = recipes_df.iloc[cluster_indices].to_dict('records')
+        matching_recipes = recipes_df.iloc[top_k_indices].to_dict('records')
         
         return matching_recipes, True
     
     async def _hierarchical_clustering(self, recipes_df: pd.DataFrame, user_vector: np.ndarray, 
-                                     threshold: float = 0.5) -> List[Dict[str, Any]]:
+                                     threshold: float = 0.3) -> List[Dict[str, Any]]:
         """
         Apply Hierarchical clustering as a fallback when K-means fails
         """
@@ -564,21 +309,26 @@ class RecipeRecommender:
         if recipe_vectors.shape[0] == 0:
             return []
         
-        # Calculate distance between user vector and recipe vectors
-        distances = pairwise_distances(user_vector.toarray(), recipe_vectors.toarray(), metric='cosine')[0]
+        # Calculate cosine similarity between user vector and recipe vectors
+        similarities = cosine_similarity(user_vector, recipe_vectors)[0]
         
-        # Sort recipes by distance (ascending)
-        sorted_indices = np.argsort(distances)
-        
-        # Get recipes below distance threshold
-        matching_indices = sorted_indices[distances[sorted_indices] < threshold]
+        # Get recipes above similarity threshold
+        matching_indices = np.where(similarities > threshold)[0]
         
         if len(matching_indices) == 0:
-            # If no recipes below threshold, return the 5 closest ones
-            matching_indices = sorted_indices[:5]
+            # If no recipes above threshold, return the 5 most similar ones
+            matching_indices = np.argsort(similarities)[-5:][::-1]
         
         # Get the corresponding recipes
         matching_recipes = recipes_df.iloc[matching_indices].to_dict('records')
+        
+        # Sort by similarity score
+        matching_recipes = sorted(
+            zip(matching_recipes, similarities[matching_indices]),
+            key=lambda x: x[1],
+            reverse=True
+        )
+        matching_recipes = [recipe for recipe, _ in matching_recipes]
         
         return matching_recipes
     
@@ -624,12 +374,30 @@ class RecipeRecommender:
         kmeans_results, kmeans_success = await self._kmeans_clustering(recipes_df, user_vector)
         
         if kmeans_success and kmeans_results:
-            return kmeans_results
+            # Prioritize Indian recipes in the results
+            return sorted(kmeans_results, 
+                key=lambda x: (
+                    not self.recipe_service._is_priority_source(x.get('sourceUrl', '')),
+                    not self.recipe_service._is_indian_recipe(x),
+                    sum(1 for ing in ingredients 
+                        if any(ing in i['name'].lower() or i['name'].lower() in ing 
+                            for i in x['ingredients']))
+                )
+            )
         
         # If K-means fails, use Hierarchical clustering
         hierarchical_results = await self._hierarchical_clustering(recipes_df, user_vector)
         
-        return hierarchical_results
+        # Prioritize Indian recipes in the results
+        return sorted(hierarchical_results, 
+            key=lambda x: (
+                not self.recipe_service._is_priority_source(x.get('sourceUrl', '')),
+                not self.recipe_service._is_indian_recipe(x),
+                sum(1 for ing in ingredients 
+                    if any(ing in i['name'].lower() or i['name'].lower() in ing 
+                        for i in x['ingredients']))
+            )
+        )
     
     def is_asking_for_recipe(self, text: str) -> Tuple[bool, Optional[str]]:
         """
@@ -640,6 +408,19 @@ class RecipeRecommender:
         if self.is_general_conversation(text.lower()):
             return False, None
         
+        # Check for Indian recipe specific patterns
+        indian_recipe_patterns = [
+            r"(?i)how to make (dosa|idli|sambar|rasam|curry|biryani|pulao|roti|naan|paratha|puri|pongal|upma|poha|vada|pakora|samosa)",
+            r"(?i)recipe for (dosa|idli|sambar|rasam|curry|biryani|pulao|roti|naan|paratha|puri|pongal|upma|poha|vada|pakora|samosa)",
+            r"(?i)how to prepare (dosa|idli|sambar|rasam|curry|biryani|pulao|roti|naan|paratha|puri|pongal|upma|poha|vada|pakora|samosa)",
+            r"(?i)how to cook (dosa|idli|sambar|rasam|curry|biryani|pulao|roti|naan|paratha|puri|pongal|upma|poha|vada|pakora|samosa)"
+        ]
+        
+        for pattern in indian_recipe_patterns:
+            match = re.search(pattern, text)
+            if match:
+                return True, match.group(1)
+        
         # Check for "what can I make with" pattern - this should NOT be treated as asking for a specific recipe
         ingredient_request_patterns = [
             r"(?i)what can i make with\s+(.+)",
@@ -648,6 +429,11 @@ class RecipeRecommender:
             r"(?i)dishes? with\s+(.+)",
             r"(?i)i have\s+(.+)",
             r"(?i)cook with\s+(.+)",
+            # Indian specific patterns
+            r"(?i)what indian dish can i make with\s+(.+)",
+            r"(?i)indian recipes with\s+(.+)",
+            r"(?i)how to use\s+(.+)\s+in indian cooking",
+            r"(?i)what to make with\s+(.+)\s+indian style"
         ]
         
         for pattern in ingredient_request_patterns:
@@ -656,7 +442,7 @@ class RecipeRecommender:
         
         # If the text is just a single food item, it's likely asking for recipes with that ingredient
         # rather than a specific recipe name
-        if len(text.split()) == 1 and text.lower() in self.common_food_ingredients:
+        if len(text.split()) == 1 and text.lower() in self.common_ingredients:
             return False, None
         
         # Try to match recipe request patterns

@@ -11,4 +11,5 @@ httpx>=0.24.0
 pydantic==1.10.7
 nltk>=3.8.1
 fuzzywuzzy>=0.18.0
-python-Levenshtein>=0.21.0 
+python-Levenshtein>=0.21.0
+google-cloud-language>=2.11.0 

@@ -189,6 +189,7 @@ input:checked + .slider:before {
     border-bottom: 1px solid var(--medium-gray);
     transition: background-color 0.3s ease;
     align-items: center;
+    gap: 0.5rem;
 }
 
 .search-input {
@@ -1183,46 +1184,6 @@ button.view-suggestion-btn:hover {
     padding-top: 1rem;
 }
 
-/* View All Recipes Button */
-.view-all-recipes-btn {
-    position: absolute;
-    bottom: -18px;
-    right: 20px;
-    background-color: var(--primary-color);
-    color: white;
-    border: none;
-    border-radius: var(--border-radius);
-    padding: 0.6rem 1.2rem;
-    font-size: 0.9rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: var(--transition);
-    box-shadow: var(--shadow);
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    letter-spacing: 0.5px;
-    z-index: 10;
-}
-
-.view-all-recipes-btn i {
-    font-size: 1rem;
-}
-
-.view-all-recipes-btn:hover {
-    background-color: var(--primary-dark);
-    transform: translateY(-2px);
-    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
-}
-
-.dark-theme .view-all-recipes-btn {
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
-}
-
-.dark-theme .view-all-recipes-btn:hover {
-    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
-}
-
 /* Back to Home Button */
 .back-home-btn {
     background-color: var(--primary-color);
@@ -1269,4 +1230,61 @@ button.view-suggestion-btn:hover {
     font-weight: 600;
     text-shadow: 0 1px 2px rgba(0,0,0,0.8);
     padding: 10px 8px;
+}
+
+/* Font declarations */
+@font-face {
+    font-family: 'Poppins';
+    src: url('/static/fonts/Poppins-Regular.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Poppins';
+    src: url('/static/fonts/Poppins-Light.woff2') format('woff2');
+    font-weight: 300;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Poppins';
+    src: url('/static/fonts/Poppins-Medium.woff2') format('woff2');
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Poppins';
+    src: url('/static/fonts/Poppins-Bold.woff2') format('woff2');
+    font-weight: bold;
+    font-style: normal;
+    font-display: swap;
+}
+
+.view-all-btn {
+    background-color: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: var(--border-radius);
+    padding: 0.8rem 1.2rem;
+    cursor: pointer;
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.view-all-btn:hover {
+    background-color: var(--primary-dark);
+    transform: scale(1.05);
+}
+
+.view-all-btn i {
+    font-size: 1rem;
 } 
